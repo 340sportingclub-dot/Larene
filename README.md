@@ -67,7 +67,23 @@ Ses données doivent rester **strictement isolées** :
 - aucune écriture ni lecture sur les tables des autres modules ;
 - RLS activé sur chaque table `arena_*`.
 
-Aucune table n’est créée à ce stade.
+## Base de données
+
+Le modèle de données vit dans [`supabase/`](./supabase/) :
+
+- `supabase/migrations/` — migrations SQL versionnées ;
+- [`supabase/README.md`](./supabase/README.md) — documentation complète du
+  modèle : tables, relations, statuts, RLS, PII, moteur de classement
+  (officiel et LIVE), règles de départage, discipline, stratégie Realtime, et
+  procédures d’application de migration / régénération des types.
+
+> **État** : la migration `20260813120000_arena_database_foundation.sql` est
+> présente dans le dépôt mais **n’a pas encore été appliquée** à l’instance
+> 340-hub. Elle doit être relue puis appliquée manuellement.
+
+Les types TypeScript de `lib/database.types.ts` sont **écrits à la main** et
+décrivent cette migration ; ils devront être régénérés depuis Supabase une fois
+la migration appliquée.
 
 ## Sécurité — règle absolue
 
