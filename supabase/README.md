@@ -37,6 +37,7 @@ Ce dossier contient les migrations SQL de L’ARÈNE et la documentation du mod�
 | `arena_group_teams` | composition des poules | non |
 | `arena_matches` | rencontres (poules + phases finales) | non |
 | `arena_match_events` | journal d’événements du match | non |
+| `arena_knockout_slots` | origine abstraite de chaque côté d’un match de phase finale | non |
 
 ### Relations
 
@@ -46,7 +47,9 @@ arena_events
  │                │                  └─ arena_player_payments
  │                └─ arena_meal_orders ── arena_meal_order_items
  ├─ arena_groups ── arena_group_teams ── arena_teams
- └─ arena_matches ── arena_match_events
+ └─ arena_matches ──┬─ arena_match_events
+                    └─ arena_knockout_slots ──┬─ arena_groups  (origine A1, B2…)
+                                              └─ arena_matches (origine vainqueur QF1…)
 ```
 
 `ON DELETE` :
@@ -86,6 +89,8 @@ des données (`arena_groups`, `arena_matches`), pas d’une constante.
 | `arena_matches.phase` | `group`, `round_of_16`, `quarter_final`, `semi_final`, `third_place`, `final` |
 | `arena_matches.status` | `scheduled`, `ready`, `live`, `finished`, `cancelled` |
 | `arena_match_events.event_type` | `goal`, `own_goal`, `yellow_card`, `red_card`, `two_minute`, `assist`, `penalty_goal`, `penalty_missed`, `score_correction` |
+| `arena_knockout_slots.side` | `home`, `away` |
+| `arena_knockout_slots.source_type` | `group_position`, `match_winner`, `match_loser` |
 
 ---
 
@@ -115,30 +120,30 @@ des données (`arena_groups`, `arena_matches`), pas d’une constante.
 - **Journal de match** : `(match_id, sequence_number)` unique — l’ordre des
   événements est fiable même si plusieurs saisies arrivent dans la même seconde.
 - **`updated_at`** : une seule fonction `arena_set_updated_at()` et un trigger
-  par table concernée (9 tables). Aucune duplication.
-
-### Limite connue
-
-`arena_matches.home_team_id` et `away_team_id` sont `NOT NULL` : un tableau de
-phase finale ne peut pas être pré-créé avec des emplacements vides. Les matchs à
-élimination directe se créent une fois les qualifiés connus. Rendre ces colonnes
-nullables demandera une migration ultérieure si un bracket prévisionnel devient
-nécessaire.
+  par table concernée (10 tables). Aucune duplication.
+- **Équipes d’un match** : `home_team_id` / `away_team_id` sont **nullables**,
+  afin que le tableau final puisse être pré-créé avant de connaître les
+  qualifiés (§ 9). Un `CHECK` garantit qu’un match de **poule** porte toujours
+  ses deux équipes ; seule la phase finale admet des côtés vides. Un vainqueur
+  ne peut être désigné que si les deux équipes sont connues.
 
 ---
 
 ## 5. RLS et privilèges
 
-RLS est activé sur **les 11 tables**. Le principe est **deny by default** :
+RLS est activé sur **les 12 tables**. Le principe est **deny by default** :
 
 | Tables | anon / authenticated |
 | --- | --- |
-| `arena_events`, `arena_groups`, `arena_group_teams`, `arena_matches`, `arena_match_events` | `SELECT` autorisé (policy explicite) — aucune donnée personnelle |
+| `arena_events`, `arena_groups`, `arena_group_teams`, `arena_matches`, `arena_match_events`, `arena_knockout_slots` | `SELECT` autorisé (policy explicite) — aucune donnée personnelle |
 | `arena_teams`, `arena_players`, `arena_player_invites`, `arena_player_payments`, `arena_meal_orders`, `arena_meal_order_items` | **aucun accès** — RLS actif, zéro policy, privilèges révoqués |
 
 - **Aucune policy `INSERT` / `UPDATE` / `DELETE` n’existe.** Toute écriture passe
   aujourd’hui par le `service_role`, donc exclusivement par du code serveur.
   La clé `service_role` ne doit jamais être exposée côté client.
+- `arena_create_knockout_bracket()` est la seule fonction d’écriture. Son
+  `EXECUTE` est **révoqué pour `public`, `anon` et `authenticated`** — sans quoi
+  le `GRANT` implicite de PostgreSQL l’aurait rendue appelable par n’importe qui.
 - Les privilèges de table sont révoqués puis re-accordés explicitement : la
   protection ne repose pas uniquement sur RLS.
 
@@ -180,9 +185,10 @@ l’accès direct est révoqué. Le linter Supabase la signalera comme
 « security definer view » — c’est **intentionnel et sûr** ici, la vue ne
 sélectionnant aucune colonne sensible.
 
-`arena_matches` et `arena_match_events` ne contiennent aucune PII (uniquement des
-UUID, scores et horodatages) et sont donc directement lisibles — ce qui est
-également nécessaire au fonctionnement de Realtime (§ 9).
+`arena_matches`, `arena_match_events` et `arena_knockout_slots` ne contiennent
+aucune PII (uniquement des UUID, scores, horodatages et origines abstraites) et
+sont donc directement lisibles — ce qui est également nécessaire au
+fonctionnement de Realtime (§ 10).
 
 **Tokens d’invitation** : seul `token_hash` est stocké. Le token brut n’existe
 que dans le lien envoyé par SMS et ne doit jamais être écrit en base ni
@@ -287,7 +293,134 @@ aucune donnée n’est à recalculer.
 
 ---
 
-## 9. Realtime
+## 9. Tableau à élimination directe
+
+### Formats supportés
+
+| Format | Poules | Qualifiés | Entrée du tableau |
+| --- | --- | --- | --- |
+| 12 équipes | 4 poules de 3 | 2 par poule = 8 | quarts de finale |
+| 16 équipes | 4 poules de 4 | 2 par poule = 8 | quarts de finale |
+
+La logique de qualification est **identique** dans les deux cas — les 2 premiers
+de chaque poule, **sans repêchage de meilleur troisième**. Le nombre d’équipes
+par poule n’intervient donc nulle part dans le moteur : seule compte l’existence
+de 4 poules. Les deux formats partagent la même matrice.
+
+### Matrice des quarts (V1, déterministe)
+
+```
+QF1 = A1 vs B2        SF1 = vainqueur QF1 vs vainqueur QF2
+QF2 = C1 vs D2        SF2 = vainqueur QF3 vs vainqueur QF4
+QF3 = B1 vs A2      FINAL = vainqueur SF1 vs vainqueur SF2
+QF4 = D1 vs C2   3e PLACE = perdant SF1  vs perdant SF2
+```
+
+A / B / C / D désignent les poules triées par `(display_order, name)` — le
+libellé de la poule n’a donc pas besoin d’être littéralement « A ».
+
+Cette matrice n’existe **qu’à un seul endroit**, la fonction
+`arena_create_knockout_bracket(event_id)`, qui crée les 8 matchs et leurs
+16 slots sans aucune équipe. Le frontend n’a rien à recoder. Elle est
+idempotente (un second appel ne fait rien), exige exactement 4 poules, et doit
+être appelée **après** la génération du calendrier des poules — les
+`match_number` du tableau sont attribués à la suite du plus grand numéro
+existant. Écriture ⇒ réservée au `service_role`.
+
+### Modèle : `arena_knockout_slots`
+
+Chaque côté (`home` / `away`) d’un match de phase finale est décrit par une
+**origine**, indépendamment de toute équipe réelle :
+
+| `source_type` | Colonnes renseignées | Libellé dérivé |
+| --- | --- | --- |
+| `group_position` | `source_group_id`, `source_position` | `A1`, `B2`, … |
+| `match_winner` | `source_match_id` | `Vainqueur QF1` |
+| `match_loser` | `source_match_id` | `Perdant SF1` (petite finale) |
+
+Un `CHECK` impose que chaque origine renseigne exactement les colonnes qui la
+concernent, et les clés étrangères composites garantissent que la poule source
+et le match source appartiennent au même événement. Les libellés sont **dérivés
+à la lecture** par `arena_knockout_slot_label()`, jamais stockés : aucune
+donnée dupliquée.
+
+`arena_matches.bracket_code` (`QF1`, `SF1`, `FINAL`, `THIRD_PLACE`) donne au
+match une étiquette stable, unique par événement, sur laquelle s’appuient les
+libellés et l’affichage public.
+
+> **Invariant non exprimable en SQL sans trigger** : un match de poule ne doit
+> pas avoir de slots. Les vues ignorent `phase = 'group'` et la fonction de
+> génération n’en crée que pour les phases finales.
+
+### Trois lectures, à ne jamais confondre
+
+| Vue | Source des équipes | Usage |
+| --- | --- | --- |
+| `arena_knockout_bracket` | **uniquement** `arena_matches` | TABLEAU OFFICIEL |
+| `arena_live_knockout_projection` | `arena_live_group_standings` | PROJECTION LIVE — NON DÉFINITIVE |
+| `arena_knockout_qualifiers` | `arena_group_standings` (officiel) | source du bouton « VALIDER LES QUALIFIÉS » |
+
+Les deux dernières partagent le moteur `arena_knockout_projection_core(boolean)`,
+exactement comme les deux classements — la résolution des slots est donc
+identique, seule la source du classement change.
+
+### Contrat public
+
+**Avant le tournoi** — `arena_knockout_bracket`, équipes `NULL` :
+
+```
+QF1 — A1 vs B2      QF3 — B1 vs A2
+QF2 — C1 vs D2      QF4 — D1 vs C2
+```
+
+**Pendant les poules** — `arena_live_knockout_projection` : les slots de poule
+sont résolus depuis le classement LIVE. Si une équipe passe de A2 à A1 sur un
+but, elle change immédiatement de quart ; l’égalisation la ramène. Afficher
+« PROJECTION LIVE — NON DÉFINITIVE » dès que `home_is_projected` ou
+`away_is_projected` vaut `true`.
+
+**Après validation** — `arena_knockout_bracket` porte les équipes réelles, et
+`home_is_projected` / `away_is_projected` retombent à `false` dans la projection.
+
+### Résolution des origines de match
+
+Un slot `match_winner` / `match_loser` ne se résout en équipe réelle **que si le
+match source est terminé et son vainqueur désigné**. On ne devine jamais l’issue
+d’un match en cours : tant que QF1 n’est pas sifflé, SF1 affiche
+« Vainqueur QF1 ». Aucune récursion n’est donc nécessaire dans le SQL.
+
+### Passage projection → officiel
+
+Le tableau officiel **n’est jamais figé automatiquement**. Rien dans cette
+migration n’écrit dans `arena_matches` : le passage est une action humaine
+explicite (futur bouton « VALIDER LES QUALIFIÉS »), qui recopie les qualifiés
+puis publie le tableau :
+
+```sql
+update public.arena_matches m
+   set home_team_id = q.home_team_id,
+       away_team_id = q.away_team_id
+  from public.arena_knockout_qualifiers q
+ where q.match_id = m.id
+   and q.event_id = <event>
+   and q.is_fully_resolved;
+
+update public.arena_events set knockout_published = true where id = <event>;
+```
+
+L’interface de ce bouton n’est pas développée ; seul le modèle qui la rend
+possible l’est.
+
+### Finale
+
+`home_extra_time_score` / `away_extra_time_score` couvrent la prolongation
+2 × 4 min. Les tirs au but ne sont **pas** modélisés à ce stade — ils
+demanderont une table dédiée (ou un usage de `arena_match_events`) dans une
+migration ultérieure. Le modèle actuel ne s’y oppose pas.
+
+---
+
+## 10. Realtime
 
 ### Tables à observer
 
@@ -318,11 +451,18 @@ a changé » et doit recharger :
 
 ```
 changement sur arena_matches (score ou status)
-        └─> refetch de arena_live_group_standings pour l'event concerné
+        ├─> refetch de arena_live_group_standings pour l'event concerné
+        └─> refetch de arena_live_knockout_projection : les slots A1/B2
+            dépendent directement du classement live
 changement sur arena_match_events
         └─> refetch des statistiques ; refetch du classement si l'événement
             est disciplinaire (yellow_card, two_minute, red_card)
 ```
+
+`arena_knockout_slots` n’est **pas** répliquée : la structure du tableau est
+fixée une fois pour toutes avant le tournoi. Tous les changements ultérieurs —
+scores, statuts, validation des qualifiés — passent par `arena_matches`, qui
+l’est déjà.
 
 Recommandations : un seul canal par événement, et un léger *debounce*
 (~200–300 ms) pour absorber les rafales de la table de marque. Ne pas tenter de
@@ -347,7 +487,7 @@ migration.
 
 ---
 
-## 10. Appliquer la migration
+## 11. Appliquer la migration
 
 **La migration n’a pas été appliquée à 340-hub.** Elle doit d’abord être relue.
 
@@ -374,13 +514,13 @@ rejouable sans effet de bord.
 
 ### Après application
 
-1. vérifier que les 11 tables `arena_*` ont bien RLS actif ;
-2. vérifier la publication Realtime (§ 9) ;
-3. régénérer les types TypeScript (§ 11).
+1. vérifier que les 12 tables `arena_*` ont bien RLS actif ;
+2. vérifier la publication Realtime (§ 10) ;
+3. régénérer les types TypeScript (§ 12).
 
 ---
 
-## 11. Régénérer `lib/database.types.ts`
+## 12. Régénérer `lib/database.types.ts`
 
 ⚠️ Le fichier `lib/database.types.ts` actuel est **écrit à la main**. Il décrit la
 migration telle qu’elle sera appliquée, mais **n’a pas été généré depuis
@@ -410,7 +550,7 @@ vues et fonctions sont typées, mais sans unions littérales pour les colonnes
 
 ---
 
-## 12. Sécurité
+## 13. Sécurité
 
 Aucun secret ne figure dans ce dossier : ni clé `service_role`, ni mot de passe
 base, ni identifiant de prestataire de paiement. `arena_player_payments` ne

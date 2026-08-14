@@ -74,7 +74,8 @@ Le modèle de données vit dans [`supabase/`](./supabase/) :
 - `supabase/migrations/` — migrations SQL versionnées ;
 - [`supabase/README.md`](./supabase/README.md) — documentation complète du
   modèle : tables, relations, statuts, RLS, PII, moteur de classement
-  (officiel et LIVE), règles de départage, discipline, stratégie Realtime, et
+  (officiel et LIVE), règles de départage, discipline, tableau à élimination
+  directe (projection live et tableau officiel), stratégie Realtime, et
   procédures d’application de migration / régénération des types.
 
 > **État** : la migration `20260813120000_arena_database_foundation.sql` est

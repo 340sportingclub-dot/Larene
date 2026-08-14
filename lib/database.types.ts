@@ -82,6 +82,19 @@ export type ArenaMatchStatus =
   | "finished"
   | "cancelled";
 
+/** Côté d'un match de phase finale. */
+export type ArenaKnockoutSide = "home" | "away";
+
+/**
+ * Origine abstraite d'un côté de match de phase finale.
+ * `group_position` = « 1er du groupe A » ; `match_winner` / `match_loser`
+ * pointent vers un autre match du tableau.
+ */
+export type ArenaKnockoutSourceType =
+  | "group_position"
+  | "match_winner"
+  | "match_loser";
+
 export type ArenaMatchEventType =
   | "goal"
   | "own_goal"
@@ -475,8 +488,11 @@ export type Database = {
           match_number: number;
           phase: ArenaMatchPhase;
           court_number: number;
-          home_team_id: string;
-          away_team_id: string;
+          /** Étiquette du tableau final (QF1, SF1, FINAL…). NULL en poules. */
+          bracket_code: string | null;
+          /** NULL tant que le qualifié n'est pas connu. Jamais NULL en poules. */
+          home_team_id: string | null;
+          away_team_id: string | null;
           scheduled_at: string | null;
           started_at: string | null;
           ended_at: string | null;
@@ -496,8 +512,9 @@ export type Database = {
           match_number: number;
           phase: ArenaMatchPhase;
           court_number?: number;
-          home_team_id: string;
-          away_team_id: string;
+          bracket_code?: string | null;
+          home_team_id?: string | null;
+          away_team_id?: string | null;
           scheduled_at?: string | null;
           started_at?: string | null;
           ended_at?: string | null;
@@ -596,6 +613,58 @@ export type Database = {
           },
         ];
       };
+
+      arena_knockout_slots: {
+        Row: {
+          id: string;
+          event_id: string;
+          match_id: string;
+          side: ArenaKnockoutSide;
+          source_type: ArenaKnockoutSourceType;
+          /** Renseigné si et seulement si source_type = 'group_position'. */
+          source_group_id: string | null;
+          source_position: number | null;
+          /** Renseigné si et seulement si source_type = 'match_winner' | 'match_loser'. */
+          source_match_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          event_id: string;
+          match_id: string;
+          side: ArenaKnockoutSide;
+          source_type: ArenaKnockoutSourceType;
+          source_group_id?: string | null;
+          source_position?: number | null;
+          source_match_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["arena_knockout_slots"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "arena_knockout_slots_match_fk";
+            columns: ["match_id", "event_id"];
+            referencedRelation: "arena_matches";
+            referencedColumns: ["id", "event_id"];
+          },
+          {
+            foreignKeyName: "arena_knockout_slots_source_group_fk";
+            columns: ["source_group_id", "event_id"];
+            referencedRelation: "arena_groups";
+            referencedColumns: ["id", "event_id"];
+          },
+          {
+            foreignKeyName: "arena_knockout_slots_source_match_fk";
+            columns: ["source_match_id", "event_id"];
+            referencedRelation: "arena_matches";
+            referencedColumns: ["id", "event_id"];
+          },
+        ];
+      };
     };
 
     Views: {
@@ -623,10 +692,25 @@ export type Database = {
 
       /** CLASSEMENT PROVISOIRE EN DIRECT — matchs `finished` + `live`. */
       arena_live_group_standings: {
-        Row: ArenaStandingsRow & {
-          is_live: boolean;
-          live_match_id: string | null;
-        };
+        Row: ArenaLiveStandingsRow;
+        Relationships: [];
+      };
+
+      /** TABLEAU OFFICIEL — uniquement les équipes réellement enregistrées. */
+      arena_knockout_bracket: {
+        Row: ArenaKnockoutBracketRow;
+        Relationships: [];
+      };
+
+      /** TABLEAU FINAL, PROJECTION LIVE — non définitif. */
+      arena_live_knockout_projection: {
+        Row: ArenaKnockoutProjectionRow;
+        Relationships: [];
+      };
+
+      /** Qualifiés d'après le classement OFFICIEL — source du bouton de validation. */
+      arena_knockout_qualifiers: {
+        Row: ArenaKnockoutProjectionRow;
         Relationships: [];
       };
     };
@@ -634,13 +718,31 @@ export type Database = {
     Functions: {
       arena_group_standings_core: {
         Args: { p_include_live?: boolean };
-        Returns: (ArenaStandingsRow & {
-          is_live: boolean;
-          live_match_id: string | null;
-        })[];
+        Returns: ArenaLiveStandingsRow[];
+      };
+      arena_knockout_projection_core: {
+        Args: { p_include_live?: boolean };
+        Returns: ArenaKnockoutProjectionRow[];
+      };
+      arena_knockout_slot_label: {
+        Args: {
+          p_source_type: string;
+          p_group_name: string | null;
+          p_source_position: number | null;
+          p_source_bracket_code: string | null;
+        };
+        Returns: string | null;
       };
       arena_discipline_weight: {
         Args: { p_event_type: string };
+        Returns: number;
+      };
+      /**
+       * Écriture — réservée au `service_role`, EXECUTE révoqué pour anon et
+       * authenticated. Crée les 8 matchs du tableau et leurs 16 slots.
+       */
+      arena_create_knockout_bracket: {
+        Args: { p_event_id: string };
         Returns: number;
       };
     };
@@ -685,6 +787,61 @@ export type ArenaLiveStandingsRow = ArenaStandingsRow & {
   /** L'équipe dispute actuellement un match compté provisoirement. */
   is_live: boolean;
   live_match_id: string | null;
+};
+
+// -----------------------------------------------------------------------------
+// Tableau à élimination directe
+// -----------------------------------------------------------------------------
+
+/** Colonnes communes au tableau officiel et à la projection. */
+export type ArenaKnockoutMatchBase = {
+  event_id: string;
+  match_id: string;
+  /** QF1, QF2, QF3, QF4, SF1, SF2, THIRD_PLACE, FINAL. */
+  bracket_code: string | null;
+  phase: ArenaMatchPhase;
+  match_number: number;
+  court_number: number;
+  scheduled_at: string | null;
+  status: ArenaMatchStatus;
+  /** Libellé abstrait de l'origine : « A1 », « B2 », « Vainqueur QF1 ». */
+  home_slot_label: string | null;
+  away_slot_label: string | null;
+  home_team_name: string | null;
+  away_team_name: string | null;
+  home_score: number;
+  away_score: number;
+  home_extra_time_score: number | null;
+  away_extra_time_score: number | null;
+  winner_team_id: string | null;
+  /** Les deux côtés portent une équipe. */
+  is_fully_resolved: boolean;
+};
+
+/**
+ * TABLEAU OFFICIEL (`arena_knockout_bracket`).
+ * Les équipes sont NULL tant que les qualifiés n'ont pas été validés ;
+ * l'affichage repose alors sur les seuls libellés de slot.
+ */
+export type ArenaKnockoutBracketRow = ArenaKnockoutMatchBase & {
+  home_team_id: string | null;
+  away_team_id: string | null;
+  knockout_published: boolean;
+};
+
+/**
+ * PROJECTION (`arena_live_knockout_projection` d'après le classement LIVE,
+ * `arena_knockout_qualifiers` d'après le classement OFFICIEL).
+ *
+ * `home_team_id` vaut l'équipe officielle si elle existe, sinon l'équipe
+ * projetée. `home_is_projected` à `true` signifie NON DÉFINITIF : l'interface
+ * doit afficher « PROJECTION LIVE — NON DÉFINITIVE ».
+ */
+export type ArenaKnockoutProjectionRow = ArenaKnockoutMatchBase & {
+  home_team_id: string | null;
+  away_team_id: string | null;
+  home_is_projected: boolean;
+  away_is_projected: boolean;
 };
 
 // -----------------------------------------------------------------------------

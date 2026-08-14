@@ -478,8 +478,16 @@ create table if not exists public.arena_matches (
   phase                 text        not null,
   court_number          smallint    not null default 1,
 
-  home_team_id          uuid        not null,
-  away_team_id          uuid        not null,
+  -- Étiquette stable du match dans le tableau final : 'QF1', 'SF1', 'FINAL',
+  -- 'THIRD_PLACE'. NULL en phase de poules.
+  bracket_code          text,
+
+  -- NULL autorisé en phase finale : un match du tableau peut exister avant que
+  -- les qualifiés soient connus, ses deux côtés étant alors décrits par
+  -- arena_knockout_slots (A1, B2, vainqueur de QF1, …).
+  -- En phase de poules, les deux équipes sont obligatoires (CHECK plus bas).
+  home_team_id          uuid,
+  away_team_id          uuid,
 
   scheduled_at          timestamptz,
   started_at            timestamptz,
@@ -517,6 +525,9 @@ create table if not exists public.arena_matches (
 
   constraint arena_matches_event_match_number_key
     unique (event_id, match_number),
+  -- Support des clés étrangères composites de arena_knockout_slots.
+  constraint arena_matches_id_event_id_key
+    unique (id, event_id),
 
   constraint arena_matches_match_number_check
     check (match_number > 0),
@@ -526,8 +537,23 @@ create table if not exists public.arena_matches (
     check (status in ('scheduled', 'ready', 'live', 'finished', 'cancelled')),
   constraint arena_matches_court_number_check
     check (court_number > 0),
+  -- Une rencontre de poule oppose toujours deux équipes connues ; seul le
+  -- tableau final admet des côtés encore vides.
+  constraint arena_matches_group_teams_known_check
+    check (
+      phase <> 'group'
+      or (home_team_id is not null and away_team_id is not null)
+    ),
   constraint arena_matches_distinct_teams_check
-    check (home_team_id <> away_team_id),
+    check (
+      home_team_id is null
+      or away_team_id is null
+      or home_team_id <> away_team_id
+    ),
+  constraint arena_matches_bracket_code_check
+    check (bracket_code is null or bracket_code ~ '^[A-Z][A-Z0-9_]{1,19}$'),
+  constraint arena_matches_group_bracket_code_check
+    check (phase <> 'group' or bracket_code is null),
   constraint arena_matches_scores_check
     check (home_score >= 0 and away_score >= 0),
   constraint arena_matches_extra_time_scores_check
@@ -547,7 +573,14 @@ create table if not exists public.arena_matches (
       or (phase <> 'group' and group_id is null)
     ),
   constraint arena_matches_winner_check
-    check (winner_team_id is null or winner_team_id in (home_team_id, away_team_id)),
+    check (
+      winner_team_id is null
+      or (
+        home_team_id is not null
+        and away_team_id is not null
+        and winner_team_id in (home_team_id, away_team_id)
+      )
+    ),
   constraint arena_matches_timeline_check
     check (started_at is null or ended_at is null or started_at <= ended_at)
 );
@@ -556,6 +589,10 @@ comment on table public.arena_matches is
   'L''ARÈNE — rencontres. Les scores de cette table font FOI pour les classements ; arena_match_events est un journal statistique.';
 comment on column public.arena_matches.home_extra_time_score is
   'Score de prolongation (2 x 4 min, finale). Le score du temps réglementaire reste dans home_score/away_score.';
+comment on column public.arena_matches.bracket_code is
+  'Étiquette stable dans le tableau final (QF1, QF2, QF3, QF4, SF1, SF2, FINAL, THIRD_PLACE). NULL en phase de poules.';
+comment on column public.arena_matches.home_team_id is
+  'NULL tant que le qualifié n''est pas connu (tableau final pré-créé). Obligatoire en phase de poules.';
 
 create index if not exists arena_matches_event_id_idx
   on public.arena_matches (event_id);
@@ -573,6 +610,10 @@ create index if not exists arena_matches_away_team_id_idx
 create index if not exists arena_matches_group_status_idx
   on public.arena_matches (group_id, status)
   where group_id is not null;
+-- Étiquette du tableau final, unique par événement lorsqu'elle est renseignée.
+create unique index if not exists arena_matches_event_bracket_code_key
+  on public.arena_matches (event_id, bracket_code)
+  where bracket_code is not null;
 
 
 -- =============================================================================
@@ -630,7 +671,102 @@ create index if not exists arena_match_events_event_type_idx
 
 
 -- =============================================================================
--- 13. Triggers updated_at
+-- 13. arena_knockout_slots — description abstraite du tableau final
+-- =============================================================================
+-- Chaque côté (home / away) d'un match de phase finale est décrit par une
+-- ORIGINE, indépendamment de toute équipe réelle :
+--
+--   * `group_position` : « 1er du groupe A » = (source_group_id, source_position)
+--   * `match_winner`   : « vainqueur de QF1 » = (source_match_id)
+--   * `match_loser`    : « perdant de SF1 »   = (source_match_id), pour la
+--                        petite finale
+--
+-- Le tableau complet (QF1 = A1 vs B2, …) est donc représentable et affichable
+-- AVANT le tirage au sort. Les équipes réelles n'arrivent dans
+-- arena_matches.home_team_id / away_team_id qu'à la validation humaine des
+-- qualifiés ; d'ici là ces colonnes restent NULL et seule la projection
+-- (§ 16) donne des noms d'équipes.
+--
+-- Aucune donnée n'est dupliquée : les libellés (« A1 », « Vainqueur QF1 ») sont
+-- dérivés à la lecture, jamais stockés.
+--
+-- INVARIANT non exprimable en SQL sans trigger : un match de poule ne doit pas
+-- avoir de slots. Les fonctions et vues du § 16 ignorent `phase = 'group'`, et
+-- arena_create_knockout_bracket() n'en crée que pour les phases finales.
+
+create table if not exists public.arena_knockout_slots (
+  id              uuid primary key default gen_random_uuid(),
+  event_id        uuid        not null,
+  match_id        uuid        not null,
+
+  side            text        not null,
+
+  source_type     text        not null,
+  source_group_id uuid,
+  source_position smallint,
+  source_match_id uuid,
+
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+
+  -- FK composites : le match, la poule source et le match source appartiennent
+  -- nécessairement au même événement que le slot.
+  constraint arena_knockout_slots_match_fk
+    foreign key (match_id, event_id)
+    references public.arena_matches (id, event_id) on delete cascade,
+  constraint arena_knockout_slots_source_group_fk
+    foreign key (source_group_id, event_id)
+    references public.arena_groups (id, event_id) on delete cascade,
+  constraint arena_knockout_slots_source_match_fk
+    foreign key (source_match_id, event_id)
+    references public.arena_matches (id, event_id) on delete cascade,
+
+  constraint arena_knockout_slots_match_side_key
+    unique (match_id, side),
+
+  constraint arena_knockout_slots_side_check
+    check (side in ('home', 'away')),
+  constraint arena_knockout_slots_source_type_check
+    check (source_type in ('group_position', 'match_winner', 'match_loser')),
+  -- Une origine renseigne exactement les colonnes qui la concernent.
+  constraint arena_knockout_slots_source_shape_check
+    check (
+      (
+        source_type = 'group_position'
+        and source_group_id is not null
+        and source_position is not null
+        and source_match_id is null
+      )
+      or (
+        source_type in ('match_winner', 'match_loser')
+        and source_match_id is not null
+        and source_group_id is null
+        and source_position is null
+      )
+    ),
+  constraint arena_knockout_slots_source_position_check
+    check (source_position is null or source_position > 0),
+  constraint arena_knockout_slots_no_self_reference_check
+    check (source_match_id is null or source_match_id <> match_id)
+);
+
+comment on table public.arena_knockout_slots is
+  'L''ARÈNE — origine abstraite de chaque côté d''un match de phase finale (A1, B2, vainqueur QF1). Permet de pré-créer le tableau avant de connaître les qualifiés.';
+
+create index if not exists arena_knockout_slots_match_id_idx
+  on public.arena_knockout_slots (match_id);
+create index if not exists arena_knockout_slots_event_id_idx
+  on public.arena_knockout_slots (event_id);
+create index if not exists arena_knockout_slots_source_group_idx
+  on public.arena_knockout_slots (source_group_id, source_position)
+  where source_group_id is not null;
+create index if not exists arena_knockout_slots_source_match_idx
+  on public.arena_knockout_slots (source_match_id)
+  where source_match_id is not null;
+
+
+-- =============================================================================
+-- 14. Triggers updated_at
 -- =============================================================================
 
 do $$
@@ -646,7 +782,8 @@ begin
     'arena_meal_orders',
     'arena_meal_order_items',
     'arena_groups',
-    'arena_matches'
+    'arena_matches',
+    'arena_knockout_slots'
   ]
   loop
     execute format('drop trigger if exists %I on public.%I', 'set_' || t || '_updated_at', t);
@@ -660,7 +797,7 @@ $$;
 
 
 -- =============================================================================
--- 14. MOTEUR DE CLASSEMENT
+-- 15. MOTEUR DE CLASSEMENT
 -- =============================================================================
 -- Une seule implémentation, paramétrée par `p_include_live`, alimente les deux
 -- classements. Ils partagent donc EXACTEMENT la même hiérarchie de départage :
@@ -850,7 +987,7 @@ comment on function public.arena_group_standings_core(boolean) is
 
 
 -- -----------------------------------------------------------------------------
--- 14a. Classement OFFICIEL — matchs terminés uniquement
+-- 15a. Classement OFFICIEL — matchs terminés uniquement
 -- -----------------------------------------------------------------------------
 
 create or replace view public.arena_group_standings as
@@ -881,7 +1018,7 @@ comment on view public.arena_group_standings is
 
 
 -- -----------------------------------------------------------------------------
--- 14b. Classement LIVE — matchs terminés + matchs en cours
+-- 15b. Classement LIVE — matchs terminés + matchs en cours
 -- -----------------------------------------------------------------------------
 
 create or replace view public.arena_live_group_standings as
@@ -914,7 +1051,379 @@ comment on view public.arena_live_group_standings is
 
 
 -- =============================================================================
--- 15. Surface publique sans PII
+-- 16. MOTEUR DE TABLEAU FINAL
+-- =============================================================================
+-- FORMATS SUPPORTÉS
+--   * 12 équipes : 4 poules de 3
+--   * 16 équipes : 4 poules de 4
+--   Dans les deux cas la qualification est identique — LES 2 PREMIERS DE CHAQUE
+--   POULE, soit 8 qualifiés, sans repêchage de meilleur troisième. Le tableau
+--   démarre donc en quarts de finale et la matrice ci-dessous vaut pour les
+--   deux formats. Le nombre d'équipes par poule n'intervient nulle part.
+--
+-- MATRICE DES QUARTS (V1, déterministe)
+--   QF1 = A1 vs B2      SF1 = vainqueur QF1 vs vainqueur QF2
+--   QF2 = C1 vs D2      SF2 = vainqueur QF3 vs vainqueur QF4
+--   QF3 = B1 vs A2      FINAL = vainqueur SF1 vs vainqueur SF2
+--   QF4 = D1 vs C2      THIRD_PLACE = perdant SF1 vs perdant SF2
+--   A/B/C/D désignent les poules triées par (display_order, name).
+--
+-- TROIS LECTURES, À NE JAMAIS CONFONDRE
+--   1. arena_knockout_bracket          — tableau OFFICIEL : uniquement ce qui
+--      est réellement enregistré dans arena_matches. Avant validation, les
+--      équipes sont NULL et seuls les libellés (A1, B2, …) sont affichables.
+--   2. arena_live_knockout_projection  — PROJECTION LIVE : les slots de poule
+--      sont résolus depuis arena_live_group_standings. Non définitif.
+--   3. arena_knockout_qualifiers       — résolution depuis le classement
+--      OFFICIEL. C'est la source de vérité du futur bouton « VALIDER LES
+--      QUALIFIÉS », qui recopiera ces équipes dans arena_matches.
+--
+-- Le tableau officiel n'est JAMAIS figé automatiquement : rien dans cette
+-- migration n'écrit dans arena_matches. Le passage projection -> officiel est
+-- une action humaine explicite, côté serveur.
+
+-- Libellé abstrait d'un slot. Fonction unique pour que « A1 » ou
+-- « Vainqueur QF1 » ne soient formatés qu'à un seul endroit.
+create or replace function public.arena_knockout_slot_label(
+  p_source_type          text,
+  p_group_name           text,
+  p_source_position      smallint,
+  p_source_bracket_code  text
+)
+returns text
+language sql
+immutable
+set search_path = pg_catalog, pg_temp
+as $$
+  select case p_source_type
+    when 'group_position' then p_group_name || p_source_position::text
+    when 'match_winner'   then 'Vainqueur ' || p_source_bracket_code
+    when 'match_loser'    then 'Perdant ' || p_source_bracket_code
+  end;
+$$;
+
+comment on function public.arena_knockout_slot_label(text, text, smallint, text) is
+  'L''ARÈNE — libellé abstrait d''un slot de tableau final (A1, B2, Vainqueur QF1, Perdant SF2).';
+
+
+-- -----------------------------------------------------------------------------
+-- 16a. Résolution des slots
+-- -----------------------------------------------------------------------------
+-- Un slot `group_position` se résout par le classement (live ou officiel selon
+-- p_include_live). Un slot `match_winner` / `match_loser` ne se résout QUE si le
+-- match source est terminé et son vainqueur désigné : on ne devine jamais l'issue
+-- d'un match en cours, la demi-finale reste donc « Vainqueur QF1 » jusqu'au
+-- coup de sifflet final du quart. Aucune récursion n'est nécessaire.
+
+create or replace function public.arena_knockout_projection_core(p_include_live boolean default false)
+returns table (
+  event_id              uuid,
+  match_id              uuid,
+  bracket_code          text,
+  phase                 text,
+  match_number          integer,
+  court_number          smallint,
+  scheduled_at          timestamptz,
+  status                text,
+  home_slot_label       text,
+  home_team_id          uuid,
+  home_team_name        text,
+  home_is_projected     boolean,
+  away_slot_label       text,
+  away_team_id          uuid,
+  away_team_name        text,
+  away_is_projected     boolean,
+  home_score            smallint,
+  away_score            smallint,
+  home_extra_time_score smallint,
+  away_extra_time_score smallint,
+  winner_team_id        uuid,
+  is_fully_resolved     boolean
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with standings as (
+    select s.group_id, s.team_id, s.rank
+    from public.arena_group_standings_core(p_include_live) s
+  ),
+  resolved as (
+    select
+      sl.match_id,
+      sl.side,
+      public.arena_knockout_slot_label(
+        sl.source_type, g.name, sl.source_position, src.bracket_code
+      ) as slot_label,
+      -- Le libellé (« Vainqueur QF1 ») existe toujours ; seule la résolution en
+      -- équipe réelle attend que le match source soit terminé.
+      case
+        when sl.source_type = 'group_position' then st.team_id
+        when src.status <> 'finished' or src.winner_team_id is null then null
+        when sl.source_type = 'match_winner' then src.winner_team_id
+        when src.winner_team_id = src.home_team_id then src.away_team_id
+        else src.home_team_id
+      end as projected_team_id
+    from public.arena_knockout_slots sl
+    left join public.arena_groups g
+      on g.id = sl.source_group_id
+    left join public.arena_matches src
+      on src.id = sl.source_match_id
+    left join standings st
+      on st.group_id = sl.source_group_id
+     and st.rank = sl.source_position
+  )
+  select
+    m.event_id,
+    m.id                                              as match_id,
+    m.bracket_code,
+    m.phase,
+    m.match_number,
+    m.court_number,
+    m.scheduled_at,
+    m.status,
+    h.slot_label                                      as home_slot_label,
+    coalesce(m.home_team_id, h.projected_team_id)     as home_team_id,
+    coalesce(ht.name, hp.name)                        as home_team_name,
+    (m.home_team_id is null and h.projected_team_id is not null) as home_is_projected,
+    a.slot_label                                      as away_slot_label,
+    coalesce(m.away_team_id, a.projected_team_id)     as away_team_id,
+    coalesce(awt.name, ap.name)                        as away_team_name,
+    (m.away_team_id is null and a.projected_team_id is not null) as away_is_projected,
+    m.home_score,
+    m.away_score,
+    m.home_extra_time_score,
+    m.away_extra_time_score,
+    m.winner_team_id,
+    (
+      coalesce(m.home_team_id, h.projected_team_id) is not null
+      and coalesce(m.away_team_id, a.projected_team_id) is not null
+    )                                                 as is_fully_resolved
+  from public.arena_matches m
+  left join resolved h on h.match_id = m.id and h.side = 'home'
+  left join resolved a on a.match_id = m.id and a.side = 'away'
+  left join public.arena_teams ht on ht.id = m.home_team_id
+  left join public.arena_teams awt on awt.id = m.away_team_id
+  left join public.arena_teams hp on hp.id = h.projected_team_id
+  left join public.arena_teams ap on ap.id = a.projected_team_id
+  where m.phase <> 'group'
+$$;
+
+comment on function public.arena_knockout_projection_core(boolean) is
+  'L''ARÈNE — moteur de tableau final. Résout les slots depuis le classement live (true) ou officiel (false). SECURITY DEFINER : n''expose que des noms d''équipes, aucune PII.';
+
+
+-- -----------------------------------------------------------------------------
+-- 16b. Tableau OFFICIEL — aucune projection
+-- -----------------------------------------------------------------------------
+-- Ce que le tableau contient réellement. Avant la validation humaine des
+-- qualifiés, home_team_id / away_team_id sont NULL et l'affichage se fait sur
+-- les seuls libellés (« QF1 — A1 vs B2 »).
+
+create or replace view public.arena_knockout_bracket as
+select
+  m.event_id,
+  m.id                                       as match_id,
+  m.bracket_code,
+  m.phase,
+  m.match_number,
+  m.court_number,
+  m.scheduled_at,
+  m.status,
+  public.arena_knockout_slot_label(hs.source_type, hg.name, hs.source_position, hsrc.bracket_code)
+                                             as home_slot_label,
+  m.home_team_id,
+  ht.name                                    as home_team_name,
+  public.arena_knockout_slot_label(aws.source_type, ag.name, aws.source_position, asrc.bracket_code)
+                                             as away_slot_label,
+  m.away_team_id,
+  awt.name                                   as away_team_name,
+  m.home_score,
+  m.away_score,
+  m.home_extra_time_score,
+  m.away_extra_time_score,
+  m.winner_team_id,
+  (m.home_team_id is not null and m.away_team_id is not null) as is_fully_resolved,
+  e.knockout_published
+from public.arena_matches m
+join public.arena_events e on e.id = m.event_id
+left join public.arena_knockout_slots hs on hs.match_id = m.id and hs.side = 'home'
+left join public.arena_groups hg on hg.id = hs.source_group_id
+left join public.arena_matches hsrc on hsrc.id = hs.source_match_id
+left join public.arena_knockout_slots aws on aws.match_id = m.id and aws.side = 'away'
+left join public.arena_groups ag on ag.id = aws.source_group_id
+left join public.arena_matches asrc on asrc.id = aws.source_match_id
+left join public.arena_teams ht on ht.id = m.home_team_id
+left join public.arena_teams awt on awt.id = m.away_team_id
+where m.phase <> 'group';
+
+comment on view public.arena_knockout_bracket is
+  'L''ARÈNE — TABLEAU OFFICIEL. Ne montre que les équipes réellement enregistrées ; NULL tant que les qualifiés ne sont pas validés. Ne jamais mélanger avec arena_live_knockout_projection.';
+
+
+-- -----------------------------------------------------------------------------
+-- 16c. PROJECTION LIVE — non définitive
+-- -----------------------------------------------------------------------------
+-- Pendant les poules, chaque slot A1/A2/B1/… est résolu depuis le classement
+-- LIVE. Un but qui fait passer une équipe de A2 à A1 la déplace immédiatement
+-- dans l'autre quart ; l'égalisation la ramène. L'affichage doit être accompagné
+-- de la mention « PROJECTION LIVE — NON DÉFINITIVE » dès que home_is_projected
+-- ou away_is_projected vaut true.
+
+create or replace view public.arena_live_knockout_projection as
+select *
+from public.arena_knockout_projection_core(true);
+
+comment on view public.arena_live_knockout_projection is
+  'L''ARÈNE — TABLEAU FINAL, PROJECTION LIVE. Slots résolus depuis arena_live_group_standings. home_is_projected/away_is_projected = true signifie NON DÉFINITIF.';
+
+
+-- -----------------------------------------------------------------------------
+-- 16d. Qualifiés officiels — source du bouton « VALIDER LES QUALIFIÉS »
+-- -----------------------------------------------------------------------------
+-- Même moteur, mais alimenté par le classement OFFICIEL (matchs terminés).
+-- C'est ce que la validation humaine recopiera dans arena_matches :
+--
+--   update public.arena_matches m
+--      set home_team_id = q.home_team_id,
+--          away_team_id = q.away_team_id
+--     from public.arena_knockout_qualifiers q
+--    where q.match_id = m.id
+--      and q.event_id = <event>
+--      and q.is_fully_resolved;
+--
+-- Cette écriture reste volontairement hors migration : elle n'a de sens qu'une
+-- fois toutes les rencontres de poules terminées, et c'est un humain qui en
+-- décide. `knockout_published` peut alors être activé sur l'événement.
+
+create or replace view public.arena_knockout_qualifiers as
+select *
+from public.arena_knockout_projection_core(false);
+
+comment on view public.arena_knockout_qualifiers is
+  'L''ARÈNE — qualifiés d''après le CLASSEMENT OFFICIEL. Prévisualisation et source d''écriture du bouton « VALIDER LES QUALIFIÉS ». N''écrit rien par elle-même.';
+
+
+-- -----------------------------------------------------------------------------
+-- 16e. Génération du tableau
+-- -----------------------------------------------------------------------------
+-- Crée les 8 matchs de phase finale et leurs 16 slots, sans aucune équipe.
+-- Unique source de vérité de la matrice : le frontend n'a rien à recoder.
+-- Idempotente : ne fait rien si un match de phase finale existe déjà.
+-- À appeler APRÈS avoir généré le calendrier des poules : les match_number du
+-- tableau sont attribués à la suite du plus grand numéro existant.
+-- Fonction d'écriture -> SECURITY INVOKER, EXECUTE révoqué au public (§ 19).
+
+create or replace function public.arena_create_knockout_bracket(p_event_id uuid)
+returns integer
+language plpgsql
+volatile
+set search_path = public, pg_temp
+as $$
+declare
+  v_groups  uuid[];
+  v_qf      uuid[] := array[]::uuid[];
+  v_sf      uuid[] := array[]::uuid[];
+  v_final   uuid;
+  v_third   uuid;
+  v_number  integer;
+  v_match   uuid;
+  i         integer;
+begin
+  if not exists (select 1 from public.arena_events where id = p_event_id) then
+    raise exception 'arena_create_knockout_bracket: événement % introuvable', p_event_id;
+  end if;
+
+  if exists (
+    select 1 from public.arena_matches
+    where event_id = p_event_id and phase <> 'group'
+  ) then
+    return 0;
+  end if;
+
+  select array_agg(id order by display_order, name)
+    into v_groups
+    from public.arena_groups
+   where event_id = p_event_id;
+
+  if coalesce(array_length(v_groups, 1), 0) <> 4 then
+    raise exception
+      'arena_create_knockout_bracket: 4 poules attendues pour l''événement %, % trouvée(s)',
+      p_event_id, coalesce(array_length(v_groups, 1), 0);
+  end if;
+
+  select coalesce(max(match_number), 0)
+    into v_number
+    from public.arena_matches
+   where event_id = p_event_id;
+
+  for i in 1..4 loop
+    v_number := v_number + 1;
+    insert into public.arena_matches (event_id, match_number, phase, bracket_code)
+    values (p_event_id, v_number, 'quarter_final', 'QF' || i)
+    returning id into v_match;
+    v_qf := v_qf || v_match;
+  end loop;
+
+  -- QF1 = A1 vs B2, QF2 = C1 vs D2, QF3 = B1 vs A2, QF4 = D1 vs C2
+  insert into public.arena_knockout_slots
+    (event_id, match_id, side, source_type, source_group_id, source_position)
+  values
+    (p_event_id, v_qf[1], 'home', 'group_position', v_groups[1], 1),
+    (p_event_id, v_qf[1], 'away', 'group_position', v_groups[2], 2),
+    (p_event_id, v_qf[2], 'home', 'group_position', v_groups[3], 1),
+    (p_event_id, v_qf[2], 'away', 'group_position', v_groups[4], 2),
+    (p_event_id, v_qf[3], 'home', 'group_position', v_groups[2], 1),
+    (p_event_id, v_qf[3], 'away', 'group_position', v_groups[1], 2),
+    (p_event_id, v_qf[4], 'home', 'group_position', v_groups[4], 1),
+    (p_event_id, v_qf[4], 'away', 'group_position', v_groups[3], 2);
+
+  for i in 1..2 loop
+    v_number := v_number + 1;
+    insert into public.arena_matches (event_id, match_number, phase, bracket_code)
+    values (p_event_id, v_number, 'semi_final', 'SF' || i)
+    returning id into v_match;
+    v_sf := v_sf || v_match;
+  end loop;
+
+  -- SF1 = vainqueurs QF1/QF2, SF2 = vainqueurs QF3/QF4
+  insert into public.arena_knockout_slots
+    (event_id, match_id, side, source_type, source_match_id)
+  values
+    (p_event_id, v_sf[1], 'home', 'match_winner', v_qf[1]),
+    (p_event_id, v_sf[1], 'away', 'match_winner', v_qf[2]),
+    (p_event_id, v_sf[2], 'home', 'match_winner', v_qf[3]),
+    (p_event_id, v_sf[2], 'away', 'match_winner', v_qf[4]);
+
+  v_number := v_number + 1;
+  insert into public.arena_matches (event_id, match_number, phase, bracket_code)
+  values (p_event_id, v_number, 'third_place', 'THIRD_PLACE')
+  returning id into v_third;
+
+  v_number := v_number + 1;
+  insert into public.arena_matches (event_id, match_number, phase, bracket_code)
+  values (p_event_id, v_number, 'final', 'FINAL')
+  returning id into v_final;
+
+  insert into public.arena_knockout_slots
+    (event_id, match_id, side, source_type, source_match_id)
+  values
+    (p_event_id, v_third, 'home', 'match_loser',  v_sf[1]),
+    (p_event_id, v_third, 'away', 'match_loser',  v_sf[2]),
+    (p_event_id, v_final, 'home', 'match_winner', v_sf[1]),
+    (p_event_id, v_final, 'away', 'match_winner', v_sf[2]);
+
+  return 8;
+end;
+$$;
+
+comment on function public.arena_create_knockout_bracket(uuid) is
+  'L''ARÈNE — crée les 8 matchs de phase finale et leurs slots (QF1=A1vsB2, QF2=C1vsD2, QF3=B1vsA2, QF4=D1vsC2), sans équipes. Exige 4 poules. Idempotente. Réservée au service_role.';
+
+
+-- =============================================================================
+-- 17. Surface publique sans PII
 -- =============================================================================
 -- arena_teams porte les coordonnées du capitaine : la table reste fermée et le
 -- public passe par cette projection. La vue s'appuie volontairement sur les
@@ -939,7 +1448,7 @@ comment on view public.arena_public_teams is
 
 
 -- =============================================================================
--- 16. RLS — deny by default, lectures publiques sûres uniquement
+-- 18. RLS — deny by default, lectures publiques sûres uniquement
 -- =============================================================================
 -- Aucune policy INSERT/UPDATE/DELETE n'est créée : toute écriture passe par le
 -- service_role (côté serveur) tant que l'authentification staff n'existe pas.
@@ -955,6 +1464,7 @@ alter table public.arena_groups            enable row level security;
 alter table public.arena_group_teams       enable row level security;
 alter table public.arena_matches           enable row level security;
 alter table public.arena_match_events      enable row level security;
+alter table public.arena_knockout_slots    enable row level security;
 
 -- Tables sans aucune donnée personnelle : lecture publique explicite.
 -- arena_matches et arena_match_events doivent en outre rester lisibles par
@@ -979,13 +1489,18 @@ drop policy if exists arena_match_events_public_read on public.arena_match_event
 create policy arena_match_events_public_read
   on public.arena_match_events for select to anon, authenticated using (true);
 
+-- Structure pure du tableau final (origines abstraites), aucune donnée personnelle.
+drop policy if exists arena_knockout_slots_public_read on public.arena_knockout_slots;
+create policy arena_knockout_slots_public_read
+  on public.arena_knockout_slots for select to anon, authenticated using (true);
+
 -- arena_teams, arena_players, arena_player_invites, arena_player_payments,
 -- arena_meal_orders, arena_meal_order_items : AUCUNE policy.
 -- RLS actif + zéro policy = refus total pour anon et authenticated.
 
 
 -- =============================================================================
--- 17. Privilèges
+-- 19. Privilèges
 -- =============================================================================
 
 revoke all on table
@@ -999,7 +1514,8 @@ revoke all on table
   public.arena_groups,
   public.arena_group_teams,
   public.arena_matches,
-  public.arena_match_events
+  public.arena_match_events,
+  public.arena_knockout_slots
 from anon, authenticated;
 
 grant select on table
@@ -1007,26 +1523,44 @@ grant select on table
   public.arena_groups,
   public.arena_group_teams,
   public.arena_matches,
-  public.arena_match_events
+  public.arena_match_events,
+  public.arena_knockout_slots
 to anon, authenticated;
 
 grant select on table
   public.arena_public_teams,
   public.arena_group_standings,
-  public.arena_live_group_standings
+  public.arena_live_group_standings,
+  public.arena_knockout_bracket,
+  public.arena_live_knockout_projection,
+  public.arena_knockout_qualifiers
 to anon, authenticated;
 
 grant execute on function public.arena_group_standings_core(boolean) to anon, authenticated;
 grant execute on function public.arena_discipline_weight(text) to anon, authenticated;
+grant execute on function public.arena_knockout_projection_core(boolean) to anon, authenticated;
+grant execute on function public.arena_knockout_slot_label(text, text, smallint, text) to anon, authenticated;
+
+-- Fonction d'ÉCRITURE : réservée au service_role. `public` inclut anon et
+-- authenticated, d'où la révocation explicite — sans quoi le GRANT EXECUTE
+-- implicite de PostgreSQL la rendrait appelable par n'importe qui.
+revoke all on function public.arena_create_knockout_bracket(uuid)
+  from public, anon, authenticated;
 
 
 -- =============================================================================
--- 18. Realtime
+-- 20. Realtime
 -- =============================================================================
 -- Le frontend s'abonne à arena_matches (score/statut) et arena_match_events
 -- (statistiques). Les classements sont des vues calculées : PostgreSQL ne
 -- réplique pas les vues, le client doit re-interroger
--- arena_live_group_standings à chaque notification.
+-- arena_live_group_standings à chaque notification — et, dans le même
+-- rafraîchissement, arena_live_knockout_projection, dont les slots A1/B2
+-- dépendent directement du classement live.
+--
+-- arena_knockout_slots n'est PAS répliquée : la structure du tableau est fixée
+-- une fois pour toutes avant le tournoi. C'est arena_matches qui porte tous les
+-- changements ultérieurs, y compris la validation des qualifiés.
 --
 -- Ajout idempotent, et sans échec si la publication n'existe pas encore sur
 -- l'instance : dans ce cas l'activation se fait manuellement depuis le
