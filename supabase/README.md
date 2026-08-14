@@ -150,8 +150,16 @@ RLS est activé sur **les 12 tables**. Le principe est **deny by default** :
   (ils ne s’appliquent qu’aux objets créés par le rôle pour lequel ils ont été
   définis). Sans ce `GRANT`, la fonction serait inappelable par qui que ce soit
   hors propriétaire.
-- Les privilèges de table sont révoqués puis re-accordés explicitement : la
-  protection ne repose pas uniquement sur RLS.
+- Les privilèges sont révoqués puis re-accordés explicitement, **sur les tables
+  comme sur les vues** : la protection ne repose pas uniquement sur RLS.
+  Cette révocation sur les vues est indispensable. Supabase pose
+  `alter default privileges … grant all on tables`, et une vue est une « table »
+  à ce titre : sans elle, `anon` héritait de `INSERT`/`UPDATE`/`DELETE` sur
+  `arena_public_teams`. Or cette vue est **auto-modifiable** (projection simple
+  d’une seule table) et s’exécute avec les droits de son propriétaire — elle
+  constituait donc un chemin d’écriture direct dans `arena_teams`, contournant
+  intégralement RLS. Toute nouvelle vue publique doit suivre la même règle :
+  `REVOKE ALL` puis `GRANT SELECT`.
 
 ### Policies à ajouter avec l’authentification staff
 

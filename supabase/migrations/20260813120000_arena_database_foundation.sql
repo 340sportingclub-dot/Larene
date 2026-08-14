@@ -1527,6 +1527,22 @@ grant select on table
   public.arena_knockout_slots
 to anon, authenticated;
 
+-- Les VUES doivent être révoquées avec la même rigueur que les tables.
+-- Supabase pose `alter default privileges ... grant all on tables`, et une vue
+-- est une « table » à ce titre : sans cette révocation, anon hérite de
+-- INSERT/UPDATE/DELETE sur arena_public_teams. Or cette vue est
+-- auto-modifiable (projection simple d'une seule table) et s'exécute avec les
+-- droits de son propriétaire : elle deviendrait un chemin d'écriture direct
+-- dans arena_teams, contournant intégralement RLS.
+revoke all on table
+  public.arena_public_teams,
+  public.arena_group_standings,
+  public.arena_live_group_standings,
+  public.arena_knockout_bracket,
+  public.arena_live_knockout_projection,
+  public.arena_knockout_qualifiers
+from anon, authenticated;
+
 grant select on table
   public.arena_public_teams,
   public.arena_group_standings,
