@@ -143,7 +143,13 @@ RLS est activé sur **les 12 tables**. Le principe est **deny by default** :
   La clé `service_role` ne doit jamais être exposée côté client.
 - `arena_create_knockout_bracket()` est la seule fonction d’écriture. Son
   `EXECUTE` est **révoqué pour `public`, `anon` et `authenticated`** — sans quoi
-  le `GRANT` implicite de PostgreSQL l’aurait rendue appelable par n’importe qui.
+  le `GRANT` implicite de PostgreSQL l’aurait rendue appelable par n’importe qui
+  — puis **re-accordé explicitement à `service_role`**. Ce second temps est
+  indispensable : révoquer à `PUBLIC` retire aussi l’accès de `service_role`, et
+  les default privileges de Supabase ne peuvent pas être considérés comme acquis
+  (ils ne s’appliquent qu’aux objets créés par le rôle pour lequel ils ont été
+  définis). Sans ce `GRANT`, la fonction serait inappelable par qui que ce soit
+  hors propriétaire.
 - Les privilèges de table sont révoqués puis re-accordés explicitement : la
   protection ne repose pas uniquement sur RLS.
 

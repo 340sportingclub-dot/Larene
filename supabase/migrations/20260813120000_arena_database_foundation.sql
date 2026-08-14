@@ -1547,6 +1547,12 @@ grant execute on function public.arena_knockout_slot_label(text, text, smallint,
 revoke all on function public.arena_create_knockout_bracket(uuid)
   from public, anon, authenticated;
 
+-- Révoquer à PUBLIC retire aussi l'accès de service_role : il faut donc le lui
+-- re-accorder explicitement. Ne pas compter sur les default privileges de
+-- Supabase — ils ne s'appliquent qu'aux objets créés par le rôle pour lequel
+-- ils ont été définis, et cette fonction serait alors inappelable.
+grant execute on function public.arena_create_knockout_bracket(uuid) to service_role;
+
 
 -- =============================================================================
 -- 20. Realtime
