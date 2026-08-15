@@ -3,9 +3,16 @@
 L’ARÈNE partage l’instance Supabase du projet **340-hub** avec d’autres modules.
 Ce dossier contient les migrations SQL de L’ARÈNE et la documentation du modèle.
 
-> **Statut** : la migration `20260813120000_arena_database_foundation.sql` est
-> présente dans le dépôt mais **n’a pas encore été appliquée à 340-hub**. Elle
-> doit être relue puis appliquée manuellement (voir « Appliquer la migration »).
+## Migrations
+
+| Fichier | Contenu | Statut |
+| --- | --- | --- |
+| `20260813120000_arena_database_foundation.sql` | modèle de données, moteur de classement, tableau final, RLS, Realtime | **appliquée** |
+| `20260814120000_arena_security_hotfix.sql` | correctif de privilèges (§ 5) | **à appliquer** |
+
+Les migrations sont **additives**. Une migration déjà appliquée n’est jamais
+réécrite : elle reste l’historique fidèle de ce qui a été posé en base. Toute
+correction passe par un nouveau fichier.
 
 ---
 
@@ -143,9 +150,23 @@ RLS est activé sur **les 12 tables**. Le principe est **deny by default** :
   La clé `service_role` ne doit jamais être exposée côté client.
 - `arena_create_knockout_bracket()` est la seule fonction d’écriture. Son
   `EXECUTE` est **révoqué pour `public`, `anon` et `authenticated`** — sans quoi
-  le `GRANT` implicite de PostgreSQL l’aurait rendue appelable par n’importe qui.
-- Les privilèges de table sont révoqués puis re-accordés explicitement : la
-  protection ne repose pas uniquement sur RLS.
+  le `GRANT` implicite de PostgreSQL l’aurait rendue appelable par n’importe qui
+  — puis **re-accordé explicitement à `service_role`**. Ce second temps est
+  indispensable : révoquer à `PUBLIC` retire aussi l’accès de `service_role`, et
+  les default privileges de Supabase ne peuvent pas être considérés comme acquis
+  (ils ne s’appliquent qu’aux objets créés par le rôle pour lequel ils ont été
+  définis). Sans ce `GRANT`, la fonction serait inappelable par qui que ce soit
+  hors propriétaire.
+- Les privilèges sont révoqués puis re-accordés explicitement, **sur les tables
+  comme sur les vues** : la protection ne repose pas uniquement sur RLS.
+  Cette révocation sur les vues est indispensable. Supabase pose
+  `alter default privileges … grant all on tables`, et une vue est une « table »
+  à ce titre : sans elle, `anon` héritait de `INSERT`/`UPDATE`/`DELETE` sur
+  `arena_public_teams`. Or cette vue est **auto-modifiable** (projection simple
+  d’une seule table) et s’exécute avec les droits de son propriétaire — elle
+  constituait donc un chemin d’écriture direct dans `arena_teams`, contournant
+  intégralement RLS. Toute nouvelle vue publique doit suivre la même règle :
+  `REVOKE ALL` puis `GRANT SELECT`.
 
 ### Policies à ajouter avec l’authentification staff
 
@@ -487,14 +508,16 @@ migration.
 
 ---
 
-## 11. Appliquer la migration
+## 11. Appliquer les migrations
 
-**La migration n’a pas été appliquée à 340-hub.** Elle doit d’abord être relue.
+**`20260814120000_arena_security_hotfix.sql` n’a pas encore été appliquée à
+340-hub.** Elle doit d’abord être relue. Tant qu’elle ne l’est pas, le chemin
+d’écriture décrit au § 5 reste ouvert en production.
 
-Elle a en revanche été exécutée et testée sur une instance PostgreSQL 16 jetable
-reproduisant les rôles Supabase (`anon`, `authenticated`, `service_role`) : la
-migration passe, est ré-exécutable sans erreur, et les classements, contraintes,
-policies et cascades ont été vérifiés.
+Chaque migration a été exécutée et testée sur une instance PostgreSQL 16 jetable
+reproduisant les rôles Supabase (`anon`, `authenticated`, `service_role`) et
+leurs default privileges. Le hotfix a été validé **appliqué seul après la
+foundation**, c’est-à-dire exactement dans les conditions de 340-hub.
 
 ### Option A — Supabase CLI (recommandée)
 
@@ -503,16 +526,34 @@ npx supabase link --project-ref <ref-du-projet-340-hub>
 npx supabase db push
 ```
 
-`db push` n’applique que les migrations absentes de l’historique distant.
-Vérifier au préalable avec `npx supabase migration list`.
+`db push` n’applique que les migrations absentes de l’historique distant — donc
+ici le seul hotfix. Vérifier au préalable avec `npx supabase migration list`.
 
 ### Option B — SQL Editor
 
-Copier le contenu de `supabase/migrations/20260813120000_arena_database_foundation.sql`
-dans le SQL Editor du dashboard, puis exécuter. Le fichier est conçu pour être
-rejouable sans effet de bord.
+Copier le contenu de `supabase/migrations/20260814120000_arena_security_hotfix.sql`
+dans le SQL Editor du dashboard, puis exécuter. Le fichier est rejouable sans
+effet de bord.
 
-### Après application
+### Après application du hotfix
+
+Contrôle attendu — `anon` ne doit plus avoir que `SELECT` :
+
+```sql
+select table_name, privilege_type
+from information_schema.role_table_grants
+where grantee in ('anon', 'authenticated')
+  and table_schema = 'public'
+  and table_name like 'arena%'
+  and privilege_type <> 'SELECT';
+-- 0 ligne attendue
+
+select has_function_privilege('service_role',
+  'public.arena_create_knockout_bracket(uuid)', 'execute');
+-- true attendu
+```
+
+### Après application de la foundation (pour mémoire)
 
 1. vérifier que les 12 tables `arena_*` ont bien RLS actif ;
 2. vérifier la publication Realtime (§ 10) ;
