@@ -22,6 +22,7 @@ import {
   TrophyIcon,
 } from "@/components/arena/icons";
 import { demoFormat, demoKnockoutFixtures } from "@/lib/arena/demo-data";
+import { isPreviewEnvironment } from "@/lib/arena/environment";
 import { getGroupMatchCount } from "@/lib/arena/tournament-format";
 import {
   arenaInfo,
@@ -289,10 +290,19 @@ export default function Page() {
         <div id="programme" className="scroll-mt-20">
         <InfoCard icon={CalendarIcon} title="Programme">
           <p className="mb-3 text-xs leading-relaxed text-arena-muted">
-            Déroulé de la journée pour le format à {demoFormat.teamCount}{" "}
-            équipes. Le calendrier définitif sera confirmé après la clôture des
+            Le déroulé ci-dessous correspond au format actuellement sélectionné.
+            Le calendrier définitif sera confirmé après la clôture des
             inscriptions ; le détail match par match est sur la page Matchs.
           </p>
+
+          {/* Repère de recette : le scénario actif n'est visible qu'en Preview,
+              jamais en production, où il laisserait croire que le format est
+              arrêté. */}
+          {isPreviewEnvironment() && (
+            <p className="mb-3 inline-flex items-center gap-2 rounded border border-arena-line px-2 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-arena-muted">
+              Preview · scénario {demoFormat.teamCount} équipes
+            </p>
+          )}
 
           {/* Volume dérivé du format retenu, jamais saisi à la main. */}
           <p className="mb-4 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-arena-muted">

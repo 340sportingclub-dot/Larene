@@ -318,7 +318,7 @@ export const arenaInfo: ArenaInfo = {
   awards: [
     { id: "buteur", label: "Meilleur buteur", publicVote: false },
     { id: "passeur", label: "Meilleur passeur", publicVote: false },
-    { id: "mvp", label: "MVP du tournoi", publicVote: true },
+    { id: "mvp", label: "Meilleur joueur du tournoi", publicVote: true },
     { id: "gardien", label: "Meilleur gardien", publicVote: true },
   ],
 };

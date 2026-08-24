@@ -7,7 +7,7 @@
  * Le calendrier n'est PAS inventé ici : il vient des calendriers officiels de
  * `lib/arena/tournament-scenarios.ts`. Ce fichier ne fait que simuler le
  * **tirage au sort** — quelle équipe occupe la position A1, A2… — et des
- * résultats de démonstration. Changer `SELECTED_TEAM_COUNT` dans les scénarios
+ * résultats de démonstration. Changer le nombre d'équipes du scénario actif
  * reconfigure l'ensemble du site.
  *
  * Les noms d'équipes reprennent ceux des maquettes. Aucun nom de joueur, aucune
@@ -18,6 +18,7 @@ import {
   getTournamentFormat,
   type TournamentFormat,
 } from "@/lib/arena/tournament-format";
+import { buildFinalRanking, type MatchOutcome } from "@/lib/arena/final-ranking";
 import {
   activeScenario,
   describeMatchSlot,
@@ -25,6 +26,7 @@ import {
   PHASE_LABELS,
   type GroupId,
   type MatchSlotRef,
+  type ScheduledMatchSpec,
 } from "@/lib/arena/tournament-scenarios";
 import type {
   ArenaEventSummary,
@@ -320,3 +322,35 @@ export const demoGroupMatchCount = getMatchesByPhase(
   activeScenario,
   "group",
 ).length;
+
+// ---------------------------------------------------------------------------
+// Classement final
+// ---------------------------------------------------------------------------
+
+/**
+ * Issue d'un match décisif dans le scénario de démonstration.
+ *
+ * Aucun match à élimination directe n'est joué à ce stade de la démonstration :
+ * toutes les places restent donc ouvertes, et l'interface affiche ce qui les
+ * déterminera. Brancher les vrais résultats reviendra à remplacer cette seule
+ * fonction par une lecture de `arena_matches`.
+ */
+function demoOutcome(match: ScheduledMatchSpec): MatchOutcome {
+  const fixture = demoFixtures.find((f) => f.code === match.code);
+  if (
+    !fixture ||
+    fixture.status !== "finished" ||
+    fixture.homeScore == null ||
+    fixture.awayScore == null ||
+    fixture.homeScore === fixture.awayScore
+  ) {
+    return null;
+  }
+  const homeWins = fixture.homeScore > fixture.awayScore;
+  return {
+    winner: homeWins ? fixture.home : fixture.away,
+    loser: homeWins ? fixture.away : fixture.home,
+  };
+}
+
+export const demoFinalRanking = buildFinalRanking(activeScenario, demoOutcome);

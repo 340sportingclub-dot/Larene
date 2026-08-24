@@ -2,8 +2,9 @@
  * Calendriers officiels de L'ARÈNE 2026 — SOURCE DE VÉRITÉ UNIQUE.
  *
  * Trois scénarios sont actifs pour cette édition : 8, 10 et 12 équipes. Le
- * format à 4 poules n'existe plus. Le scénario retenu se choisit à un seul
- * endroit : `SELECTED_TEAM_COUNT`.
+ * format à 4 poules n'existe plus. Le scénario actif est déterminé à un seul
+ * endroit, par `resolveScenarioTeamCount()`, à partir du nombre d'équipes
+ * réellement engagées — `DEMO_TEAM_COUNT` n'en est que le repli de démonstration.
  *
  * RÈGLES COMMUNES
  *   · un seul terrain ;
@@ -32,10 +33,34 @@ export type GroupId = "A" | "B";
 export type ScenarioTeamCount = 8 | 10 | 12;
 
 /**
- * Scénario retenu pour l'édition. **Seule valeur à changer** pour reconfigurer
- * calendrier, poules, phases finales et programme sur tout le site.
+ * Nombre d'équipes utilisé **en démonstration** (Preview).
+ *
+ * ⚠️ Ce n'est PAS une règle métier. À terme, le scénario actif se déduira du
+ * nombre d'équipes réellement inscrites, via `resolveScenarioTeamCount()` :
+ * cette constante ne sera plus que la valeur de repli quand la configuration
+ * de l'événement n'est pas encore connue.
+ *
+ * Aucun composant ne doit la lire : tous passent par `activeScenario` ou
+ * `getTournamentFormat()`.
  */
-export const SELECTED_TEAM_COUNT: ScenarioTeamCount = 12;
+export const DEMO_TEAM_COUNT: ScenarioTeamCount = 12;
+
+/**
+ * Détermine le scénario à appliquer à partir du nombre d'équipes engagées.
+ *
+ * 8 → scénario 8, 10 → scénario 10, 12 → scénario 12. Toute autre valeur, ou
+ * une configuration encore inconnue, retombe sur la valeur de démonstration :
+ * l'interface reste affichable, et le jour où `arena_events` porte le nombre
+ * définitif, il suffit de le passer ici.
+ */
+export function resolveScenarioTeamCount(
+  configuredTeamCount?: number | null,
+): ScenarioTeamCount {
+  if (configuredTeamCount != null && isActiveTeamCount(configuredTeamCount)) {
+    return configuredTeamCount;
+  }
+  return DEMO_TEAM_COUNT;
+}
 
 // ---------------------------------------------------------------------------
 // Références de participants
@@ -69,6 +94,11 @@ export type ScheduledMatchSpec = {
   durationLabel: string;
   /** Enjeu d'un match de classement, ex. « Places 9e / 10e ». */
   stakeLabel?: string;
+  /**
+   * Places du classement final que ce match départage : `[vainqueur, perdant]`.
+   * Renseigné, il fait entrer le match dans le calcul du classement final.
+   */
+  places?: [number, number];
 };
 
 /** Moment de la journée qui n'est pas une rencontre. */
@@ -172,6 +202,36 @@ function groupPairings(size: number, legs: 1 | 2): [number, number][] {
 
 const GROUP_IDS: GroupId[] = ["A", "B"];
 
+/** Catégories soumises au vote du public, avant la finale. */
+export const PUBLIC_VOTE_CATEGORIES = [
+  "Meilleur joueur du tournoi",
+  "Meilleur gardien",
+];
+
+/**
+ * Moment officiel de la journée, entre les demi-finales et la petite finale.
+ * Défini ici une seule fois : les trois scénarios n'en changent que l'horaire.
+ */
+function penaltyEvent(
+  timeLabel: string,
+  endTimeLabel: string,
+  extra?: string,
+): DayEventSpec {
+  return {
+    id: "penalty",
+    label: "Concours de penalties & votes du public",
+    timeLabel,
+    endTimeLabel,
+    note: [
+      `Votes : ${PUBLIC_VOTE_CATEGORIES.join(" et ")}`,
+      "Candidats désignés par l’organisation",
+      extra,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
 /**
  * Calendrier de poules : les poules alternent créneau après créneau, l'unique
  * terrain enchaînant A, B, A, B…
@@ -230,6 +290,7 @@ function buildKnockoutMatches(times: {
       away: { kind: "match_loser", matchCode: "SF2" },
       durationLabel: KNOCKOUT_DURATION_LABEL,
       stakeLabel: "Places 3e / 4e",
+      places: [3, 4],
     },
     {
       code: "FINAL",
@@ -239,6 +300,7 @@ function buildKnockoutMatches(times: {
       away: { kind: "match_winner", matchCode: "SF2" },
       durationLabel: FINAL_DURATION_LABEL,
       stakeLabel: "Places 1re / 2e",
+      places: [1, 2],
     },
   ];
 }
@@ -268,7 +330,7 @@ const scenario8: TournamentScenario = {
   dayEvents: [
     { id: "doors", label: "Ouverture & accueil des équipes", timeLabel: null, note: "À confirmer" },
     { id: "groups-end", label: "Fin des poules", timeLabel: "13:48" },
-    { id: "penalty", label: "Concours de penalties & votes du public", timeLabel: "14:45", endTimeLabel: "15:45", note: "Buvette et animation" },
+    penaltyEvent("14:45", "15:45", "Buvette et animation"),
     { id: "final-presentation", label: "Présentation de la finale", timeLabel: "16:15" },
     { id: "sport-end", label: "Fin sportive", timeLabel: "16:40", note: "Horaire approximatif" },
     { id: "ceremony", label: "Remise des récompenses & photos", timeLabel: "16:45", endTimeLabel: "17:15" },
@@ -296,6 +358,7 @@ const scenario10: TournamentScenario = {
       away: { kind: "group_rank", groupId: "B", rank: 5 },
       durationLabel: KNOCKOUT_DURATION_LABEL,
       stakeLabel: "Places 9e / 10e",
+      places: [9, 10],
     },
     {
       code: "CL2",
@@ -305,6 +368,7 @@ const scenario10: TournamentScenario = {
       away: { kind: "group_rank", groupId: "B", rank: 4 },
       durationLabel: KNOCKOUT_DURATION_LABEL,
       stakeLabel: "Places 7e / 8e",
+      places: [7, 8],
     },
     {
       code: "CL3",
@@ -314,6 +378,7 @@ const scenario10: TournamentScenario = {
       away: { kind: "group_rank", groupId: "B", rank: 3 },
       durationLabel: KNOCKOUT_DURATION_LABEL,
       stakeLabel: "Places 5e / 6e",
+      places: [5, 6],
     },
     ...buildKnockoutMatches({
       semiFinal1: "13:45",
@@ -325,7 +390,7 @@ const scenario10: TournamentScenario = {
   dayEvents: [
     { id: "doors", label: "Ouverture & accueil des équipes", timeLabel: null, note: "À confirmer" },
     { id: "groups-end", label: "Fin des poules", timeLabel: "13:00" },
-    { id: "penalty", label: "Concours de penalties & votes du public", timeLabel: "14:15", endTimeLabel: "15:15", note: "Restauration et animation" },
+    penaltyEvent("14:15", "15:15", "Restauration et animation"),
     { id: "final-presentation", label: "Présentation de la finale", timeLabel: "16:00" },
     { id: "sport-end", label: "Fin sportive", timeLabel: "16:30", note: "Horaire approximatif" },
     { id: "ceremony", label: "Cérémonie", timeLabel: "16:35", endTimeLabel: "17:00" },
@@ -354,7 +419,7 @@ const scenario12: TournamentScenario = {
     { id: "doors", label: "Ouverture & accueil des équipes", timeLabel: null, note: "À confirmer" },
     { id: "groups-end", label: "Fin des poules", timeLabel: "15:00" },
     { id: "validation", label: "Validation des classements & récupération", timeLabel: "15:00", endTimeLabel: "15:30" },
-    { id: "penalty", label: "Concours de penalties & votes du public", timeLabel: "16:00", endTimeLabel: "16:45" },
+    penaltyEvent("16:00", "16:45"),
     { id: "final-presentation", label: "Présentation de la finale", timeLabel: "17:05" },
     { id: "sport-end", label: "Fin sportive", timeLabel: "17:31", note: "Horaire approximatif" },
     { id: "ceremony", label: "Remise des récompenses & photos", timeLabel: "17:35", endTimeLabel: "18:00" },
@@ -374,13 +439,13 @@ export function isActiveTeamCount(value: number): value is ScenarioTeamCount {
 }
 
 export function getScenario(
-  teamCount: ScenarioTeamCount = SELECTED_TEAM_COUNT,
+  teamCount: ScenarioTeamCount = resolveScenarioTeamCount(),
 ): TournamentScenario {
   return SCENARIOS[teamCount];
 }
 
 /** Le scénario de l'édition en cours. */
-export const activeScenario = getScenario(SELECTED_TEAM_COUNT);
+export const activeScenario = getScenario(resolveScenarioTeamCount());
 
 // ---------------------------------------------------------------------------
 // Sélecteurs
@@ -401,6 +466,18 @@ export function getGroupMatches(
     (match) =>
       match.phase === "group" && (!groupId || match.groupId === groupId),
   );
+}
+
+/**
+ * Matchs qui départagent une place au classement final, triés par place.
+ * Vide si le format n'en comporte aucun.
+ */
+export function getRankingMatches(
+  scenario: TournamentScenario,
+): ScheduledMatchSpec[] {
+  return scenario.matches
+    .filter((match) => match.places !== undefined)
+    .sort((a, b) => a.places![0] - b.places![0]);
 }
 
 /**

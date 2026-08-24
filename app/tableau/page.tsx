@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 
 import { BracketRoundsLayout } from "@/components/arena/BracketPreview";
 import { PairingCard } from "@/components/arena/BracketPieces";
+import { FinalRankingTable } from "@/components/arena/FinalRankingTable";
 import { PageHero } from "@/components/arena/PageHero";
 import {
   demoBracket,
   demoClassificationFixtures,
   demoEvent,
+  demoFinalRanking,
   demoFormat,
   demoThirdPlace,
 } from "@/lib/arena/demo-data";
@@ -104,6 +106,24 @@ export default function Page() {
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+        {demoFinalRanking.rows.length > 0 && (
+          <section aria-labelledby="final-ranking-title">
+            <h2
+              id="final-ranking-title"
+              className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-arena-gold"
+            >
+              Classement final
+            </h2>
+            <p className="mb-3 max-w-2xl text-xs leading-relaxed text-arena-muted">
+              {demoFinalRanking.coversAllTeams
+                ? `Chaque place, de la 1re à la ${demoFormat.teamCount}e, est décidée par un match. Elle reste ouverte tant qu’il n’est pas joué.`
+                : "Les places décidées par un match apparaissent ici dès qu’il est joué. Les suivantes relèvent du classement de poules."}
+            </p>
+            <div className="max-w-xl">
+              <FinalRankingTable ranking={demoFinalRanking} />
+            </div>
           </section>
         )}
       </div>
