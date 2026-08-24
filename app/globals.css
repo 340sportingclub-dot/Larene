@@ -1,31 +1,132 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ==========================================================================
+   L'ARÈNE — design tokens
+   Palette unique, sombre, chaude. Noir profond, or/bronze, blanc cassé.
+   Aucune variante claire : l'identité est volontairement mono-thème.
+   ========================================================================== */
+@theme {
+  --color-arena-black: #050505;
+  --color-arena-surface: #0d0c0a;
+  --color-arena-elevated: #15120d;
+  --color-arena-line: #2b2418;
+
+  --color-arena-gold-dark: #a9792b;
+  --color-arena-gold: #d5a548;
+  --color-arena-gold-light: #e9c675;
+
+  --color-arena-white: #f2efe8;
+  --color-arena-muted: #a7a29a;
+
+  /* Braise : réservée aux marqueurs "en direct". Jamais décorative. */
+  --color-arena-ember: #e0673a;
+
+  --font-display: var(--font-anton), "Haettenschweiler", "Arial Narrow",
+    "Helvetica Neue", sans-serif;
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-}
+@layer base {
+  html {
+    background-color: var(--color-arena-black);
+    color-scheme: dark;
+    /* Aucun débordement horizontal toléré, quel que soit le viewport. */
+    overflow-x: hidden;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: var(--color-arena-black);
+    color: var(--color-arena-white);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.005em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-arena-gold);
+    outline-offset: 3px;
+    border-radius: 3px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+/* --------------------------------------------------------------------------
+   Grain très léger : le noir des références n'est jamais parfaitement plat.
+   Généré en CSS, aucun asset externe.
+   -------------------------------------------------------------------------- */
+@utility arena-grain {
+  position: relative;
+  isolation: isolate;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* Filet doré fin — le séparateur récurrent de la DA. */
+@utility arena-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-arena-gold) 45%, transparent),
+    transparent
+  );
+}
+
+/* Halo de projecteur : lumière de gymnase, jamais un dégradé "gaming". */
+@utility arena-spotlight {
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--color-arena-gold-dark) 22%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      var(--color-arena-surface) 0%,
+      var(--color-arena-black) 100%
+    );
+}
+
+@keyframes arena-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@utility arena-pulse {
+  animation: arena-pulse 2.4s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   Accessibilité : aucune animation imposée à qui n'en veut pas.
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
