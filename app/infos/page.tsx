@@ -21,7 +21,7 @@ import {
   TicketIcon,
   TrophyIcon,
 } from "@/components/arena/icons";
-import { demoFormat } from "@/lib/arena/demo-data";
+import { demoFormat, demoKnockoutFixtures } from "@/lib/arena/demo-data";
 import { getGroupMatchCount } from "@/lib/arena/tournament-format";
 import {
   arenaInfo,
@@ -289,9 +289,9 @@ export default function Page() {
         <div id="programme" className="scroll-mt-20">
         <InfoCard icon={CalendarIcon} title="Programme">
           <p className="mb-3 text-xs leading-relaxed text-arena-muted">
-            Ordre de la journée. Aucun horaire de match n’est publié tant que
-            les inscriptions ne sont pas closes : le calendrier dépend du nombre
-            final d’équipes engagées.
+            Déroulé de la journée pour le format à {demoFormat.teamCount}{" "}
+            équipes. Le calendrier définitif sera confirmé après la clôture des
+            inscriptions ; le détail match par match est sur la page Matchs.
           </p>
 
           {/* Volume dérivé du format retenu, jamais saisi à la main. */}
@@ -302,9 +302,7 @@ export default function Page() {
             <span aria-hidden="true">·</span>
             <span>{groupMatchCount} matchs de poules</span>
             <span aria-hidden="true">·</span>
-            <span>
-              {demoFormat.bracketMatches.length} matchs à élimination directe
-            </span>
+            <span>{demoKnockoutFixtures.length} matchs de phase finale</span>
           </p>
 
           <DaySchedule slots={arenaInfo.schedule} />

@@ -5,21 +5,27 @@ import { FixtureRow } from "@/components/arena/FixtureRow";
 import { PageHero } from "@/components/arena/PageHero";
 import {
   COURT_LABEL,
-  demoFinishedFixtures,
+  demoClassificationFixtures,
   demoFormat,
+  demoGroupFixtures,
+  demoKnockoutFixtures,
   demoLiveMatch,
-  demoUpcomingFixtures,
 } from "@/lib/arena/demo-data";
 import { hasGroup } from "@/lib/arena/tournament-format";
+import type { FixtureMatch } from "@/lib/arena/types";
 
 export const metadata: Metadata = { title: "Matchs — L’ARÈNE" };
 
 /**
- * Page Matchs.
+ * Page Matchs — le calendrier officiel du scénario retenu.
  *
- * Le filtre par poule est construit à partir de `demoFormat.groupIds` : il ne
- * propose que des poules qui existent. Une poule demandée dans l'URL mais
- * absente du format est ignorée et la liste complète s'affiche.
+ * Aucune heure n'est saisie ici : tout vient de `tournament-scenarios`. Le
+ * filtre par poule est construit à partir des poules réellement présentes, et
+ * une poule demandée dans l'URL mais absente du format est ignorée.
+ *
+ * Les sections « classement » et « phases finales » n'apparaissent que si le
+ * scénario les contient — le format à 10 équipes est le seul à comporter des
+ * matchs de classement.
  */
 export default async function Page({
   searchParams,
@@ -30,31 +36,33 @@ export default async function Page({
   const requested = (poule ?? "").toUpperCase();
   const activeGroupId = hasGroup(demoFormat, requested) ? requested : null;
 
-  const matchesGroup = (groupLabel?: string | null) =>
-    !activeGroupId || groupLabel === `Poule ${activeGroupId}`;
+  const groupFixtures = activeGroupId
+    ? demoGroupFixtures.filter((f) => f.groupLabel === `Poule ${activeGroupId}`)
+    : demoGroupFixtures;
 
-  const upcoming = demoUpcomingFixtures.filter((f) => matchesGroup(f.groupLabel));
-  const finished = demoFinishedFixtures.filter((f) => matchesGroup(f.groupLabel));
+  // Un filtre de poule ne s'applique pas aux matchs de classement ni au tableau :
+  // ces rencontres opposent les deux poules.
+  const showCrossGroupSections = activeGroupId === null;
 
   return (
     <main>
       <PageHero
         title="Matchs"
-        subtitle="Tous les matchs du tournoi"
+        subtitle="Le calendrier officiel du tournoi"
         meta={[
           `${demoFormat.teamCount} équipes`,
-          `${demoUpcomingFixtures.length + demoFinishedFixtures.length} matchs de poules`,
+          `${demoGroupFixtures.length} matchs de poules`,
+          `${demoFormat.guaranteedMatchesPerTeam} matchs garantis par équipe`,
           COURT_LABEL,
         ]}
       />
 
       <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
-        {/* Filtre par poule — uniquement les poules du format. */}
         <nav aria-label="Filtrer par poule">
           <ul className="flex flex-wrap gap-2">
             <li>
               <FilterChip href="/matchs" active={activeGroupId === null}>
-                Toutes
+                Tout le calendrier
               </FilterChip>
             </li>
             {demoFormat.groups.map((group) => (
@@ -103,23 +111,40 @@ export default async function Page({
         </section>
 
         <FixtureList
-          id="upcoming-title"
-          title="À venir"
-          fixtures={upcoming}
-          emptyLabel="Aucun match à venir pour cette poule."
+          id="group-title"
+          title={
+            activeGroupId
+              ? `Poules — poule ${activeGroupId}`
+              : `Phase de poules${demoFormat.groupLegs === 2 ? " — aller-retour" : ""}`
+          }
+          fixtures={groupFixtures}
+          emptyLabel="Aucun match de poule pour ce filtre."
         />
 
-        <FixtureList
-          id="finished-title"
-          title="Terminés"
-          fixtures={finished}
-          emptyLabel="Aucun match terminé pour cette poule."
-        />
+        {showCrossGroupSections && demoClassificationFixtures.length > 0 && (
+          <FixtureList
+            id="classification-title"
+            title="Matchs de classement"
+            description="Chaque équipe non qualifiée dispute un match de classement : il fait partie intégrante du format."
+            fixtures={demoClassificationFixtures}
+            emptyLabel="Aucun match de classement dans ce format."
+          />
+        )}
+
+        {showCrossGroupSections && (
+          <FixtureList
+            id="knockout-title"
+            title="Phases finales"
+            description="Les équipes seront connues à l’issue des poules."
+            fixtures={demoKnockoutFixtures}
+            emptyLabel="Aucune phase finale programmée."
+          />
+        )}
 
         <p className="text-xs leading-relaxed text-arena-muted">
-          Calendrier de démonstration, généré depuis le format du tournoi. Les
-          horaires et résultats réels seront branchés sur la base au prochain
-          sprint.
+          Calendrier officiel du scénario à {demoFormat.teamCount} équipes.
+          Les résultats affichés sont des données de démonstration ; ils seront
+          branchés sur la base au prochain sprint.
         </p>
       </div>
     </main>
@@ -153,28 +178,35 @@ function FilterChip({
 function FixtureList({
   id,
   title,
+  description,
   fixtures,
   emptyLabel,
 }: {
   id: string;
   title: string;
-  fixtures: React.ComponentProps<typeof FixtureRow>["fixture"][];
+  description?: string;
+  fixtures: FixtureMatch[];
   emptyLabel: string;
 }) {
   return (
     <section aria-labelledby={id}>
       <h2
         id={id}
-        className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-arena-gold"
+        className="text-[11px] font-bold uppercase tracking-[0.2em] text-arena-gold"
       >
         {title}
       </h2>
+      {description && (
+        <p className="mt-1.5 text-xs leading-relaxed text-arena-muted">
+          {description}
+        </p>
+      )}
       {fixtures.length === 0 ? (
-        <p className="rounded-lg border border-arena-line bg-arena-surface/70 p-4 text-sm text-arena-muted">
+        <p className="mt-3 rounded-lg border border-arena-line bg-arena-surface/70 p-4 text-sm text-arena-muted">
           {emptyLabel}
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="mt-3 flex flex-col gap-2">
           {fixtures.map((fixture) => (
             <li key={fixture.id}>
               <FixtureRow fixture={fixture} />

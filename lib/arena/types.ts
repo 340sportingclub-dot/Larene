@@ -8,6 +8,8 @@
  * sans toucher aux composants.
  */
 
+import type { MatchPhase } from "@/lib/arena/tournament-scenarios";
+
 export type TeamSummary = {
   id: string;
   name: string;
@@ -23,6 +25,78 @@ export type ArenaEventSummary = {
   dateLabel: string;
   venueName: string;
   city: string;
+};
+
+/**
+ * Un côté de rencontre.
+ *
+ * `label` est toujours renseigné — « A1 », « 1er poule A », « Vainqueur demie 1 ».
+ * `team` ne l'est qu'une fois l'équipe réellement connue : avant le tirage, ou
+ * avant la fin des poules, le calendrier reste donc parfaitement lisible.
+ */
+export type MatchParticipant = {
+  team: TeamSummary | null;
+  label: string;
+};
+
+/** Nom à afficher pour un côté de rencontre. */
+export function participantName(participant: MatchParticipant): string {
+  return participant.team?.name ?? participant.label;
+}
+
+export type MatchStatus = "scheduled" | "live" | "finished";
+
+/** Rencontre du calendrier officiel. */
+export type FixtureMatch = {
+  id: string;
+  /** Code stable du calendrier : G1…, CL1…, SF1, TP, FINAL. */
+  code: string;
+  /** Heure de coup d'envoi, ex. « 09:00 ». */
+  timeLabel: string;
+  courtLabel: string;
+  /** Temps de jeu effectif, ex. « 10 min », « 2 × 7 min ». */
+  durationLabel: string;
+  phase: MatchPhase;
+  phaseLabel: string;
+  groupLabel?: string | null;
+  /** Enjeu d'un match de classement, ex. « Places 9e / 10e ». */
+  stakeLabel?: string | null;
+  home: MatchParticipant;
+  away: MatchParticipant;
+  status: MatchStatus;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  href: string;
+};
+
+export type GroupSummary = {
+  id: string;
+  /** Lettre seule : « A », « B ». Le mot « POULE » est ajouté par la carte. */
+  letter: string;
+  teamCount: number;
+  href: string;
+};
+
+export type GroupStandingRow = {
+  teamId: string;
+  teamName: string;
+  rank: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+  /** Dans la zone qualificative de sa poule. */
+  qualified: boolean;
+};
+
+export type GroupStandings = {
+  groupId: string;
+  letter: string;
+  rows: GroupStandingRow[];
 };
 
 /** Miroir de `arena_match_events.event_type`, limité à ce qui s'affiche en direct. */
@@ -57,62 +131,11 @@ export type LiveMatch = {
   clockLabel: string;
   venueName: string;
   courtLabel: string;
-  /** Contexte de la rencontre, ex. « Poule A » ou « Quart 1 ». */
+  /** Contexte de la rencontre, ex. « Demie 1 ». */
   stageLabel: string;
   /** Journal du match, du plus récent au plus ancien. */
   events: LiveMatchEvent[];
   href: string;
-};
-
-export type ScheduledMatch = {
-  id: string;
-  /** Heure locale déjà formatée, ex. « 16:40 ». */
-  timeLabel: string;
-  home: TeamSummary;
-  away: TeamSummary;
-  /** Une seule aire de jeu pour cette édition — voir `courtLabel` dans demo-data. */
-  courtLabel: string;
-  groupLabel?: string | null;
-  href: string;
-};
-
-export type GroupSummary = {
-  id: string;
-  /** Lettre seule : « A », « B »… Le mot « POULE » est ajouté par la carte. */
-  letter: string;
-  teamCount: number;
-  href: string;
-};
-
-export type MatchStatus = "scheduled" | "live" | "finished";
-
-/** Rencontre du calendrier, avec son état et son score s'il existe. */
-export type FixtureMatch = ScheduledMatch & {
-  status: MatchStatus;
-  homeScore?: number | null;
-  awayScore?: number | null;
-};
-
-export type GroupStandingRow = {
-  teamId: string;
-  teamName: string;
-  rank: number;
-  played: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
-  points: number;
-  /** Dans la zone qualificative de sa poule. */
-  qualified: boolean;
-};
-
-export type GroupStandings = {
-  groupId: string;
-  letter: string;
-  rows: GroupStandingRow[];
 };
 
 export type StatLeader = {
@@ -130,7 +153,7 @@ export type StatLeader = {
 
 /**
  * Un côté de confrontation du tableau final.
- * `label` est l'origine abstraite (« 1er poule A », « Vainqueur quart 1 ») ;
+ * `label` est l'origine abstraite (« 1er poule A », « Vainqueur demie 1 ») ;
  * `teamName` ne se remplit qu'une fois le qualifié connu.
  */
 export type BracketSlot = {
@@ -140,10 +163,13 @@ export type BracketSlot = {
 
 export type BracketPairing = {
   id: string;
-  /** Étiquette courte du match, ex. « Quart 1 ». */
+  /** Étiquette courte du match, ex. « Demie 1 ». */
   code: string;
   home: BracketSlot;
   away: BracketSlot;
+  /** Heure de coup d'envoi, si le calendrier la fixe. */
+  timeLabel?: string | null;
+  durationLabel?: string | null;
 };
 
 export type BracketRound = {

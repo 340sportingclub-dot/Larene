@@ -23,8 +23,13 @@ export function SlotRow({ slot }: { slot: BracketSlot }) {
 export function PairingCard({ pairing }: { pairing: BracketPairing }) {
   return (
     <div className="h-full rounded-lg border border-arena-line bg-arena-black/60 p-2.5">
-      <p className="mb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-arena-muted">
-        {pairing.code}
+      <p className="mb-1.5 flex items-baseline justify-between gap-2 text-[9px] font-bold uppercase tracking-[0.18em] text-arena-muted">
+        <span className="truncate">{pairing.code}</span>
+        {pairing.timeLabel && (
+          <span className="shrink-0 text-arena-gold tabular-nums">
+            {pairing.timeLabel}
+          </span>
+        )}
       </p>
       <SlotRow slot={pairing.home} />
       <div aria-hidden="true" className="my-1.5 h-px bg-arena-line/70" />
@@ -57,6 +62,15 @@ export function FinaleCard({
 
         <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-arena-muted">
           {eventDateLabel}
+          {pairing.timeLabel && (
+            <>
+              {" · "}
+              <span className="text-arena-gold tabular-nums">
+                {pairing.timeLabel}
+              </span>
+            </>
+          )}
+          {pairing.durationLabel && ` · ${pairing.durationLabel}`}
         </p>
         <p className="mt-1 font-display text-lg uppercase leading-tight text-arena-white">
           Qui sera le dernier <span className="text-arena-gold">survivant</span> ?

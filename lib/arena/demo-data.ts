@@ -4,21 +4,28 @@
  * ⚠️ TEMPORAIRE — aucun appel Supabase n'est effectué. Tout est regroupé ici
  * pour qu'un seul fichier soit à remplacer au Sprint suivant.
  *
- * Point essentiel : **rien n'est écrit en dur sur la structure du tournoi**.
- * Poules, effectifs, calendrier, classements et tableau sont tous dérivés de
- * `getTournamentFormat(DEMO_TEAM_COUNT)`. Changer la seule constante
- * `DEMO_TEAM_COUNT` reconfigure l'ensemble du site.
+ * Le calendrier n'est PAS inventé ici : il vient des calendriers officiels de
+ * `lib/arena/tournament-scenarios.ts`. Ce fichier ne fait que simuler le
+ * **tirage au sort** — quelle équipe occupe la position A1, A2… — et des
+ * résultats de démonstration. Changer `SELECTED_TEAM_COUNT` dans les scénarios
+ * reconfigure l'ensemble du site.
  *
  * Les noms d'équipes reprennent ceux des maquettes. Aucun nom de joueur, aucune
  * photo, aucune statistique individuelle nominative n'est inventé.
  */
 
 import {
-  describeSlotSource,
   getTournamentFormat,
-  type BracketSlotSource,
   type TournamentFormat,
 } from "@/lib/arena/tournament-format";
+import {
+  activeScenario,
+  describeMatchSlot,
+  getMatchesByPhase,
+  PHASE_LABELS,
+  type GroupId,
+  type MatchSlotRef,
+} from "@/lib/arena/tournament-scenarios";
 import type {
   ArenaEventSummary,
   BracketRound,
@@ -27,18 +34,13 @@ import type {
   GroupSummary,
   LiveMatch,
   LiveMatchEvent,
+  MatchParticipant,
   StatLeader,
   TeamSummary,
 } from "@/lib/arena/types";
 
-/**
- * SEULE constante à modifier pour tester un autre format.
- * Valeurs de référence : 8, 10, 12 (2 poules) · 16 (4 poules).
- */
-export const DEMO_TEAM_COUNT = 16;
-
-/** Le format dérivé, consommé par toutes les pages. */
-export const demoFormat: TournamentFormat = getTournamentFormat(DEMO_TEAM_COUNT);
+/** Le format dérivé du scénario retenu, consommé par toutes les pages. */
+export const demoFormat: TournamentFormat = getTournamentFormat();
 
 /** Une seule aire de jeu pour cette édition. Ne jamais afficher « Terrain 2 ». */
 export const COURT_LABEL = "Terrain 1";
@@ -50,40 +52,48 @@ export const demoEvent: ArenaEventSummary = {
   city: "Villeneuve-la-Guyard",
 };
 
-/**
- * Réservoir de noms, ordonné pour que la répartition séquentielle en poules
- * reproduise les maquettes dans le format à 16 équipes.
- */
+/** Réservoir de noms, suffisant pour le plus grand scénario (12 équipes). */
 const TEAM_NAMES = [
-  "Titans", "Lions", "Falcons", "Raiders",
-  "Wolves", "Panthers", "Spartans", "Hunters",
-  "Pirates", "Cobras", "Vipers", "Ninjas",
-  "Sharks", "Rebels", "Kings", "Bandits",
+  "Titans", "Lions", "Falcons", "Raiders", "Wolves", "Panthers",
+  "Pirates", "Cobras", "Vipers", "Ninjas", "Sharks", "Rebels",
 ];
 
-function teamId(name: string): string {
-  return name.toLowerCase();
-}
-
-/** Répartit le réservoir de noms sur les poules du format, dans l'ordre. */
-function buildRoster(format: TournamentFormat): Map<string, TeamSummary[]> {
-  const byGroup = new Map<string, TeamSummary[]>();
+/**
+ * Tirage au sort simulé : quelle équipe occupe la position 1, 2… de chaque
+ * poule. C'est la seule chose que ce fichier décide ; le calendrier, lui, est
+ * officiel.
+ */
+const demoDraw = new Map<GroupId, TeamSummary[]>();
+{
   let cursor = 0;
-
-  format.groups.forEach((group) => {
+  demoFormat.groups.forEach((group) => {
     const teams: TeamSummary[] = [];
     for (let i = 0; i < group.teamCount; i += 1) {
       const name = TEAM_NAMES[cursor % TEAM_NAMES.length];
       cursor += 1;
-      teams.push({ id: teamId(name), name });
+      teams.push({ id: name.toLowerCase(), name });
     }
-    byGroup.set(group.id, teams);
+    demoDraw.set(group.id, teams);
   });
-
-  return byGroup;
 }
 
-const demoRoster = buildRoster(demoFormat);
+/** Équipe occupant une position de tirage, si le tirage est fait. */
+function teamAtDrawPosition(groupId: GroupId, position: number) {
+  return demoDraw.get(groupId)?.[position - 1] ?? null;
+}
+
+/**
+ * Traduit une origine en participant affichable.
+ * Seules les positions de tirage sont résolues : un rang de poule ou un
+ * vainqueur de demi-finale reste un libellé tant que le résultat n'existe pas.
+ */
+function toParticipant(ref: MatchSlotRef): MatchParticipant {
+  const label = describeMatchSlot(ref);
+  if (ref.kind === "draw_position") {
+    return { team: teamAtDrawPosition(ref.groupId, ref.position), label };
+  }
+  return { team: null, label };
+}
 
 // ---------------------------------------------------------------------------
 // Poules
@@ -102,8 +112,8 @@ export const demoGroups: GroupSummary[] = demoFormat.groups.map((group) => ({
  * compris la zone de qualification, sans prétendre à un vrai déroulé sportif.
  */
 export const demoStandings: GroupStandings[] = demoFormat.groups.map((group) => {
-  const teams = demoRoster.get(group.id) ?? [];
-  const played = Math.max(0, teams.length - 1);
+  const teams = demoDraw.get(group.id) ?? [];
+  const played = Math.max(0, (teams.length - 1) * demoFormat.groupLegs);
 
   return {
     groupId: group.id,
@@ -134,62 +144,39 @@ export const demoStandings: GroupStandings[] = demoFormat.groups.map((group) => 
 });
 
 // ---------------------------------------------------------------------------
-// Calendrier
+// Calendrier officiel
 // ---------------------------------------------------------------------------
 
-const FIRST_KICKOFF_MINUTES = 9 * 60;
-const MATCH_INTERVAL_MINUTES = 50;
-/** Nombre de rencontres déjà jouées dans le scénario de démonstration. */
+/** Nombre de rencontres de poules déjà jouées dans le scénario de démonstration. */
 const FINISHED_COUNT = 5;
 
-function formatTime(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60) % 24;
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
 /**
- * Calendrier de poules : mini-championnat dans chaque poule, puis entrelacement
- * des poules pour que l'unique terrain alterne les affiches.
+ * Le calendrier affiché EST le calendrier officiel du scénario : heures,
+ * affiches et enjeux viennent de `tournament-scenarios`. Seuls les résultats
+ * sont simulés.
  */
-function buildFixtures(format: TournamentFormat): FixtureMatch[] {
-  const perGroup = format.groups.map((group) => {
-    const teams = demoRoster.get(group.id) ?? [];
-    const pairs: { home: TeamSummary; away: TeamSummary; groupId: string }[] = [];
-    for (let i = 0; i < teams.length; i += 1) {
-      for (let j = i + 1; j < teams.length; j += 1) {
-        pairs.push({ home: teams[i], away: teams[j], groupId: group.id });
-      }
-    }
-    return pairs;
-  });
-
-  const interleaved: { home: TeamSummary; away: TeamSummary; groupId: string }[] = [];
-  const longest = Math.max(0, ...perGroup.map((pairs) => pairs.length));
-  for (let round = 0; round < longest; round += 1) {
-    perGroup.forEach((pairs) => {
-      if (pairs[round]) interleaved.push(pairs[round]);
-    });
-  }
-
-  return interleaved.map((pair, index) => {
-    const finished = index < FINISHED_COUNT;
+export const demoFixtures: FixtureMatch[] = activeScenario.matches.map(
+  (match, index) => {
+    const finished = match.phase === "group" && index < FINISHED_COUNT;
     return {
-      id: `fixture-${index + 1}`,
-      timeLabel: formatTime(FIRST_KICKOFF_MINUTES + index * MATCH_INTERVAL_MINUTES),
-      home: pair.home,
-      away: pair.away,
+      id: match.code,
+      code: match.code,
+      timeLabel: match.timeLabel,
       courtLabel: COURT_LABEL,
-      groupLabel: `Poule ${pair.groupId}`,
-      href: "/matchs",
+      durationLabel: match.durationLabel,
+      phase: match.phase,
+      phaseLabel: PHASE_LABELS[match.phase],
+      groupLabel: match.groupId ? `Poule ${match.groupId}` : null,
+      stakeLabel: match.stakeLabel ?? null,
+      home: toParticipant(match.home),
+      away: toParticipant(match.away),
       status: finished ? "finished" : "scheduled",
       homeScore: finished ? (index * 3) % 5 : null,
       awayScore: finished ? (index * 2) % 4 : null,
+      href: "/matchs",
     };
-  });
-}
-
-export const demoFixtures: FixtureMatch[] = buildFixtures(demoFormat);
+  },
+);
 
 export const demoUpcomingFixtures = demoFixtures.filter(
   (fixture) => fixture.status === "scheduled",
@@ -199,7 +186,22 @@ export const demoFinishedFixtures = demoFixtures.filter(
   (fixture) => fixture.status === "finished",
 );
 
-/** Les deux prochaines affiches proviennent du calendrier : leur poule existe toujours. */
+/** Rencontres de poules du calendrier officiel. */
+export const demoGroupFixtures = demoFixtures.filter(
+  (fixture) => fixture.phase === "group",
+);
+
+/** Matchs de classement — scénario 10 uniquement, tableau vide sinon. */
+export const demoClassificationFixtures = demoFixtures.filter(
+  (fixture) => fixture.phase === "classification",
+);
+
+/** Demi-finales, petite finale et finale. */
+export const demoKnockoutFixtures = demoFixtures.filter((fixture) =>
+  ["semi_final", "third_place", "final"].includes(fixture.phase),
+);
+
+/** Les deux prochaines affiches viennent du calendrier : elles existent toujours. */
 export const demoNextMatch = demoUpcomingFixtures[0] ?? null;
 export const demoFollowingMatch = demoUpcomingFixtures[1] ?? null;
 
@@ -208,19 +210,18 @@ export const demoFollowingMatch = demoUpcomingFixtures[1] ?? null;
 // ---------------------------------------------------------------------------
 
 /** « 1er poule A » → « #1 Poule A », le format court des pastilles du hero. */
-function seedBadge(source: BracketSlotSource): string | null {
-  if (source.kind !== "group_position") return null;
-  return `#${source.position} Poule ${source.groupId}`;
+function seedBadge(ref: MatchSlotRef): string | null {
+  if (ref.kind !== "group_rank") return null;
+  return `#${ref.rank} Poule ${ref.groupId}`;
 }
 
 /**
  * Le match en direct de la démonstration est la première affiche du tableau :
- * ses pastilles décrivent donc des positions réellement issues du format
- * (« #1 Poule A » vs « #2 Poule B » dans les deux cas de figure).
+ * ses pastilles décrivent des positions réellement issues du format.
  */
 const openingBracketMatch = demoFormat.bracketMatches[0];
-const liveHome = demoRoster.get(demoFormat.groupIds[0])?.[0];
-const liveAway = demoRoster.get(demoFormat.groupIds[1])?.[1];
+const liveHome = teamAtDrawPosition(demoFormat.groupIds[0], 1);
+const liveAway = teamAtDrawPosition(demoFormat.groupIds[1], 2);
 
 const liveHomeTeam = {
   id: liveHome?.id ?? "home",
@@ -282,8 +283,8 @@ export const demoStatLeaders: StatLeader[] = [
 
 /**
  * Traduit les tours du format en structure d'affichage. Aucune confrontation
- * n'est écrite ici : tout vient de `demoFormat.knockoutRounds`, donc le tableau
- * suit automatiquement le nombre de poules.
+ * n'est écrite ici : tout vient du scénario, donc le tableau suit
+ * automatiquement le format retenu.
  */
 export function buildBracketRounds(format: TournamentFormat): BracketRound[] {
   return format.knockoutRounds.map((round) => ({
@@ -292,10 +293,30 @@ export function buildBracketRounds(format: TournamentFormat): BracketRound[] {
     pairings: round.matches.map((match) => ({
       id: match.code,
       code: match.label,
-      home: { label: describeSlotSource(match.home, format) },
-      away: { label: describeSlotSource(match.away, format) },
+      home: { label: describeMatchSlot(match.home) },
+      away: { label: describeMatchSlot(match.away) },
+      timeLabel: match.timeLabel,
+      durationLabel: match.durationLabel,
     })),
   }));
 }
 
 export const demoBracket: BracketRound[] = buildBracketRounds(demoFormat);
+
+/** Petite finale, présentée à part du tableau de progression. */
+export const demoThirdPlace = demoFormat.thirdPlaceMatch
+  ? {
+      id: demoFormat.thirdPlaceMatch.code,
+      code: demoFormat.thirdPlaceMatch.label,
+      home: { label: describeMatchSlot(demoFormat.thirdPlaceMatch.home) },
+      away: { label: describeMatchSlot(demoFormat.thirdPlaceMatch.away) },
+      timeLabel: demoFormat.thirdPlaceMatch.timeLabel,
+      durationLabel: demoFormat.thirdPlaceMatch.durationLabel,
+    }
+  : null;
+
+/** Nombre de rencontres de poules du scénario, pour les résumés. */
+export const demoGroupMatchCount = getMatchesByPhase(
+  activeScenario,
+  "group",
+).length;

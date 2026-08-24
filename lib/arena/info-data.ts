@@ -15,6 +15,11 @@
  */
 
 import { COURT_LABEL, demoEvent } from "@/lib/arena/demo-data";
+import {
+  activeScenario,
+  getMatchesByPhase,
+  type TournamentScenario,
+} from "@/lib/arena/tournament-scenarios";
 
 /** Un moment de la journée. `time` reste `null` tant que l'heure n'est pas arrêtée. */
 export type ScheduleSlot = {
@@ -112,6 +117,98 @@ export type ArenaInfo = {
   awards: AwardCategory[];
 };
 
+/**
+ * Compose le programme de la journée à partir du calendrier officiel.
+ *
+ * Deux sources se rejoignent : les moments hors rencontre du scénario
+ * (ouverture, concours de penalties, cérémonie) et les jalons déduits des
+ * matchs eux-mêmes (début du tournoi, demi-finales, finale). Rien n'est écrit
+ * en dur — un changement de scénario suffit à tout décaler.
+ *
+ * `/infos` donne la forme de la journée ; le détail match par match est sur
+ * la page Matchs.
+ */
+function buildDayProgramme(scenario: TournamentScenario): ScheduleSlot[] {
+  const groups = getMatchesByPhase(scenario, "group");
+  const classification = getMatchesByPhase(scenario, "classification");
+  const semiFinals = getMatchesByPhase(scenario, "semi_final");
+  const thirdPlace = getMatchesByPhase(scenario, "third_place")[0];
+  const final = getMatchesByPhase(scenario, "final")[0];
+
+  const slots: ScheduleSlot[] = scenario.dayEvents.map((event) => ({
+    id: event.id,
+    label: event.label,
+    time: event.timeLabel,
+    pendingNote: event.timeLabel ? null : (event.note ?? "À confirmer"),
+    description: [
+      event.endTimeLabel ? `Jusqu’à ${event.endTimeLabel}` : null,
+      event.timeLabel ? (event.note ?? null) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || null,
+  }));
+
+  if (groups.length > 0) {
+    slots.push({
+      id: "tournament-start",
+      label: "Début du tournoi",
+      time: groups[0].timeLabel,
+      keyMilestone: true,
+      description: `${groups.length} matchs de poules · ${
+        scenario.groupLegs === 2 ? "aller-retour" : "aller simple"
+      }`,
+    });
+  }
+
+  if (classification.length > 0) {
+    slots.push({
+      id: "classification",
+      label: "Matchs de classement",
+      time: classification[0].timeLabel,
+      description: `${classification.length} matchs · places 5e à ${scenario.teamCount}e`,
+    });
+  }
+
+  if (semiFinals.length > 0) {
+    slots.push({
+      id: "semi-finals",
+      label: "Demi-finales",
+      time: semiFinals[0].timeLabel,
+      keyMilestone: true,
+      description:
+        semiFinals.length > 1
+          ? `Seconde demi-finale à ${semiFinals[1].timeLabel}`
+          : null,
+    });
+  }
+
+  if (thirdPlace) {
+    slots.push({
+      id: "third-place",
+      label: "Petite finale",
+      time: thirdPlace.timeLabel,
+      description: thirdPlace.stakeLabel ?? null,
+    });
+  }
+
+  if (final) {
+    slots.push({
+      id: "final",
+      label: "Finale",
+      time: final.timeLabel,
+      keyMilestone: true,
+      description: final.durationLabel,
+    });
+  }
+
+  // Les moments sans heure arrêtée ouvrent la journée ; le reste suit l'horloge.
+  return slots.sort((a, b) => {
+    if (a.time === null) return -1;
+    if (b.time === null) return 1;
+    return a.time.localeCompare(b.time);
+  });
+}
+
 export const arenaInfo: ArenaInfo = {
   dateLabel: demoEvent.dateLabel,
   singleDay: true,
@@ -158,55 +255,11 @@ export const arenaInfo: ArenaInfo = {
   },
 
   /**
-   * Déroulé de la journée.
-   *
-   * AUCUN horaire de match n'est publié ici : le calendrier dépend du nombre
-   * final d'équipes engagées. Chaque moment porte donc une mention de
-   * disponibilité plutôt qu'une heure. Renseigner `time` fera basculer la ligne
-   * sur l'heure réelle, sans toucher au composant.
+   * Déroulé de la journée, entièrement dérivé du calendrier officiel du
+   * scénario retenu. Aucun horaire n'est saisi ici : changer de scénario
+   * change le programme.
    */
-  schedule: [
-    {
-      id: "doors",
-      label: "Ouverture & accueil des équipes",
-      time: null,
-      pendingNote: "À confirmer",
-      keyMilestone: true,
-    },
-    {
-      id: "start",
-      label: "Début du tournoi",
-      time: null,
-      pendingNote: "À confirmer",
-      keyMilestone: true,
-    },
-    {
-      id: "group-stage",
-      label: "Phases de poules",
-      time: null,
-      pendingNote: "Programme communiqué après clôture des inscriptions",
-    },
-    {
-      id: "knockout",
-      label: "Phases finales",
-      time: null,
-      pendingNote: "À l’issue des poules",
-      keyMilestone: true,
-    },
-    {
-      id: "final",
-      label: "Finale",
-      time: null,
-      pendingNote: "Horaire communiqué avec le calendrier définitif",
-      keyMilestone: true,
-    },
-    {
-      id: "awards",
-      label: "Remise des récompenses",
-      time: null,
-      pendingNote: "Immédiatement après la finale",
-    },
-  ],
+  schedule: buildDayProgramme(activeScenario),
 
   /**
    * Règles pratiques officielles. Une règle dont `lines` vaut `null` n'est pas

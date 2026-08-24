@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { ClockIcon } from "@/components/arena/icons";
-import type { ScheduledMatch } from "@/lib/arena/types";
+import { participantName, type FixtureMatch } from "@/lib/arena/types";
 
 /**
  * Bandeau « prochain match », avec un aperçu du suivant.
@@ -16,8 +16,8 @@ export function NextMatch({
   match,
   following,
 }: {
-  match: ScheduledMatch;
-  following?: ScheduledMatch | null;
+  match: FixtureMatch;
+  following?: FixtureMatch | null;
 }) {
   return (
     <section
@@ -55,13 +55,13 @@ export function NextMatch({
             className="group grid min-h-[44px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 lg:flex-1"
           >
             <span className="truncate text-right font-display text-lg uppercase text-arena-white transition-colors group-hover:text-arena-gold-light sm:text-xl lg:text-2xl">
-              {match.home.name}
+              {participantName(match.home)}
             </span>
             <span className="font-display text-base italic text-arena-gold sm:text-lg lg:text-xl">
               VS
             </span>
             <span className="truncate font-display text-lg uppercase text-arena-white transition-colors group-hover:text-arena-gold-light sm:text-xl lg:text-2xl">
-              {match.away.name}
+              {participantName(match.away)}
             </span>
           </Link>
         </div>
@@ -85,8 +85,9 @@ export function NextMatch({
                   {following.timeLabel}
                 </span>
                 <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.1em] text-arena-muted">
-                  {following.home.name} <span className="text-arena-gold-dark">vs</span>{" "}
-                  {following.away.name}
+                  {participantName(following.home)}{" "}
+                  <span className="text-arena-gold-dark">vs</span>{" "}
+                  {participantName(following.away)}
                 </span>
               </p>
             </div>

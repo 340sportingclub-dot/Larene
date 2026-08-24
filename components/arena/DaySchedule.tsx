@@ -45,7 +45,7 @@ export function DaySchedule({ slots }: { slots: ScheduleSlot[] }) {
                     disponibilité est trop longue pour y rester lisible à
                     390 px, elle passe donc sous l'intitulé. */}
                 {slot.time && (
-                  <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-arena-gold tabular-nums">
+                  <p className="ml-auto shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-arena-gold tabular-nums">
                     {slot.time}
                   </p>
                 )}
