@@ -169,6 +169,64 @@ export function TrophyIcon(props: IconProps) {
   );
 }
 
+/** Contact par messagerie. Bulle générique, pas un logo de marque. */
+export function ChatIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20.5 11.5c0 4-3.8 7.2-8.5 7.2a9.8 9.8 0 0 1-2.7-.37L4.5 20l1.2-3.6a6.8 6.8 0 0 1-2.2-4.9c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z" />
+    </Icon>
+  );
+}
+
+export function InstagramIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16.9 7.1h.01" strokeWidth={2.2} />
+    </Icon>
+  );
+}
+
+export function TicketIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.5 8.5V6.5h17v2a2.5 2.5 0 0 0 0 7v2h-17v-2a2.5 2.5 0 0 0 0-7z" />
+      <path d="M13.5 6.5v11" strokeDasharray="2 2.5" />
+    </Icon>
+  );
+}
+
+export function DrinkIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6.5 4.5h11l-1.3 13a2 2 0 0 1-2 1.8h-4.4a2 2 0 0 1-2-1.8z" />
+      <path d="M6.9 9.5h10.2" />
+    </Icon>
+  );
+}
+
+export function CameraIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.5 8.5h3.2l1.5-2.2h7.6l1.5 2.2h3.2v10h-17z" />
+      <circle cx="12" cy="13" r="3.4" />
+    </Icon>
+  );
+}
+
+/** Aire de jeu vue du dessus — un seul terrain. */
+export function CourtIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="5.5" width="18" height="13" rx="1.5" />
+      <path d="M12 5.5v13" />
+      <circle cx="12" cy="12" r="2.4" />
+      <path d="M3 9.5h2.5v5H3M21 9.5h-2.5v5H21" />
+    </Icon>
+  );
+}
+
 /** Carton d'avertissement / d'exclusion. La couleur vient de la classe reçue. */
 export function CardIcon(props: IconProps) {
   return (
