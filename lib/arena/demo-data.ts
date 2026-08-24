@@ -1,22 +1,43 @@
 /**
- * Données de démonstration de l'accueil public.
+ * Données de démonstration de l'interface publique.
  *
- * ⚠️ TEMPORAIRE — aucun appel Supabase n'est effectué dans cette V1.
- * Tout est regroupé ici pour qu'un seul fichier soit à remplacer au Sprint
- * suivant : les composants ne connaissent que les types de `lib/arena/types.ts`.
+ * ⚠️ TEMPORAIRE — aucun appel Supabase n'est effectué. Tout est regroupé ici
+ * pour qu'un seul fichier soit à remplacer au Sprint suivant.
+ *
+ * Point essentiel : **rien n'est écrit en dur sur la structure du tournoi**.
+ * Poules, effectifs, calendrier, classements et tableau sont tous dérivés de
+ * `getTournamentFormat(DEMO_TEAM_COUNT)`. Changer la seule constante
+ * `DEMO_TEAM_COUNT` reconfigure l'ensemble du site.
  *
  * Les noms d'équipes reprennent ceux des maquettes. Aucun nom de joueur, aucune
  * photo, aucune statistique individuelle nominative n'est inventé.
  */
 
+import {
+  describeSlotSource,
+  getTournamentFormat,
+  type BracketSlotSource,
+  type TournamentFormat,
+} from "@/lib/arena/tournament-format";
 import type {
   ArenaEventSummary,
   BracketRound,
+  FixtureMatch,
+  GroupStandings,
   GroupSummary,
   LiveMatch,
-  ScheduledMatch,
   StatLeader,
+  TeamSummary,
 } from "@/lib/arena/types";
+
+/**
+ * SEULE constante à modifier pour tester un autre format.
+ * Valeurs de référence : 8, 10, 12 (2 poules) · 16 (4 poules).
+ */
+export const DEMO_TEAM_COUNT = 16;
+
+/** Le format dérivé, consommé par toutes les pages. */
+export const demoFormat: TournamentFormat = getTournamentFormat(DEMO_TEAM_COUNT);
 
 /** Une seule aire de jeu pour cette édition. Ne jamais afficher « Terrain 2 ». */
 export const COURT_LABEL = "Terrain 1";
@@ -28,10 +49,190 @@ export const demoEvent: ArenaEventSummary = {
   city: "Villeneuve-la-Guyard",
 };
 
+/**
+ * Réservoir de noms, ordonné pour que la répartition séquentielle en poules
+ * reproduise les maquettes dans le format à 16 équipes.
+ */
+const TEAM_NAMES = [
+  "Titans", "Lions", "Falcons", "Raiders",
+  "Wolves", "Panthers", "Spartans", "Hunters",
+  "Pirates", "Cobras", "Vipers", "Ninjas",
+  "Sharks", "Rebels", "Kings", "Bandits",
+];
+
+function teamId(name: string): string {
+  return name.toLowerCase();
+}
+
+/** Répartit le réservoir de noms sur les poules du format, dans l'ordre. */
+function buildRoster(format: TournamentFormat): Map<string, TeamSummary[]> {
+  const byGroup = new Map<string, TeamSummary[]>();
+  let cursor = 0;
+
+  format.groups.forEach((group) => {
+    const teams: TeamSummary[] = [];
+    for (let i = 0; i < group.teamCount; i += 1) {
+      const name = TEAM_NAMES[cursor % TEAM_NAMES.length];
+      cursor += 1;
+      teams.push({ id: teamId(name), name });
+    }
+    byGroup.set(group.id, teams);
+  });
+
+  return byGroup;
+}
+
+const demoRoster = buildRoster(demoFormat);
+
+// ---------------------------------------------------------------------------
+// Poules
+// ---------------------------------------------------------------------------
+
+export const demoGroups: GroupSummary[] = demoFormat.groups.map((group) => ({
+  id: group.id,
+  letter: group.letter,
+  teamCount: group.teamCount,
+  href: `/groupes?poule=${group.id}`,
+}));
+
+/**
+ * Classements simulés, déterministes : la n-ième équipe d'une poule gagne un
+ * match de moins que la précédente. Suffisant pour valider l'affichage, y
+ * compris la zone de qualification, sans prétendre à un vrai déroulé sportif.
+ */
+export const demoStandings: GroupStandings[] = demoFormat.groups.map((group) => {
+  const teams = demoRoster.get(group.id) ?? [];
+  const played = Math.max(0, teams.length - 1);
+
+  return {
+    groupId: group.id,
+    letter: group.letter,
+    rows: teams.map((team, index) => {
+      const wins = Math.max(0, played - index);
+      const draws = index === 1 && teams.length >= 3 ? 1 : 0;
+      const losses = Math.max(0, played - wins - draws);
+      const goalsFor = 4 + wins * 2;
+      const goalsAgainst = 2 + losses * 2;
+
+      return {
+        teamId: team.id,
+        teamName: team.name,
+        rank: index + 1,
+        played,
+        wins,
+        draws,
+        losses,
+        goalsFor,
+        goalsAgainst,
+        goalDifference: goalsFor - goalsAgainst,
+        points: wins * 3 + draws,
+        qualified: index < demoFormat.qualifiersPerGroup,
+      };
+    }),
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Calendrier
+// ---------------------------------------------------------------------------
+
+const FIRST_KICKOFF_MINUTES = 9 * 60;
+const MATCH_INTERVAL_MINUTES = 50;
+/** Nombre de rencontres déjà jouées dans le scénario de démonstration. */
+const FINISHED_COUNT = 5;
+
+function formatTime(totalMinutes: number): string {
+  const hours = Math.floor(totalMinutes / 60) % 24;
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/**
+ * Calendrier de poules : mini-championnat dans chaque poule, puis entrelacement
+ * des poules pour que l'unique terrain alterne les affiches.
+ */
+function buildFixtures(format: TournamentFormat): FixtureMatch[] {
+  const perGroup = format.groups.map((group) => {
+    const teams = demoRoster.get(group.id) ?? [];
+    const pairs: { home: TeamSummary; away: TeamSummary; groupId: string }[] = [];
+    for (let i = 0; i < teams.length; i += 1) {
+      for (let j = i + 1; j < teams.length; j += 1) {
+        pairs.push({ home: teams[i], away: teams[j], groupId: group.id });
+      }
+    }
+    return pairs;
+  });
+
+  const interleaved: { home: TeamSummary; away: TeamSummary; groupId: string }[] = [];
+  const longest = Math.max(0, ...perGroup.map((pairs) => pairs.length));
+  for (let round = 0; round < longest; round += 1) {
+    perGroup.forEach((pairs) => {
+      if (pairs[round]) interleaved.push(pairs[round]);
+    });
+  }
+
+  return interleaved.map((pair, index) => {
+    const finished = index < FINISHED_COUNT;
+    return {
+      id: `fixture-${index + 1}`,
+      timeLabel: formatTime(FIRST_KICKOFF_MINUTES + index * MATCH_INTERVAL_MINUTES),
+      home: pair.home,
+      away: pair.away,
+      courtLabel: COURT_LABEL,
+      groupLabel: `Poule ${pair.groupId}`,
+      href: "/matchs",
+      status: finished ? "finished" : "scheduled",
+      homeScore: finished ? (index * 3) % 5 : null,
+      awayScore: finished ? (index * 2) % 4 : null,
+    };
+  });
+}
+
+export const demoFixtures: FixtureMatch[] = buildFixtures(demoFormat);
+
+export const demoUpcomingFixtures = demoFixtures.filter(
+  (fixture) => fixture.status === "scheduled",
+);
+
+export const demoFinishedFixtures = demoFixtures.filter(
+  (fixture) => fixture.status === "finished",
+);
+
+/** Les deux prochaines affiches proviennent du calendrier : leur poule existe toujours. */
+export const demoNextMatch = demoUpcomingFixtures[0] ?? null;
+export const demoFollowingMatch = demoUpcomingFixtures[1] ?? null;
+
+// ---------------------------------------------------------------------------
+// Match en direct
+// ---------------------------------------------------------------------------
+
+/** « 1er poule A » → « #1 Poule A », le format court des pastilles du hero. */
+function seedBadge(source: BracketSlotSource): string | null {
+  if (source.kind !== "group_position") return null;
+  return `#${source.position} Poule ${source.groupId}`;
+}
+
+/**
+ * Le match en direct de la démonstration est la première affiche du tableau :
+ * ses pastilles décrivent donc des positions réellement issues du format
+ * (« #1 Poule A » vs « #2 Poule B » dans les deux cas de figure).
+ */
+const openingBracketMatch = demoFormat.bracketMatches[0];
+const liveHome = demoRoster.get(demoFormat.groupIds[0])?.[0];
+const liveAway = demoRoster.get(demoFormat.groupIds[1])?.[1];
+
 export const demoLiveMatch: LiveMatch = {
   id: "demo-live",
-  home: { id: "titans", name: "Titans", seedLabel: "#1 Poule A" },
-  away: { id: "lions", name: "Lions", seedLabel: "#2 Poule B" },
+  home: {
+    id: liveHome?.id ?? "home",
+    name: liveHome?.name ?? "Équipe A",
+    seedLabel: seedBadge(openingBracketMatch.home),
+  },
+  away: {
+    id: liveAway?.id ?? "away",
+    name: liveAway?.name ?? "Équipe B",
+    seedLabel: seedBadge(openingBracketMatch.away),
+  },
   homeScore: 3,
   awayScore: 2,
   periodLabel: "2ème mi-temps",
@@ -40,123 +241,39 @@ export const demoLiveMatch: LiveMatch = {
   href: "/matchs",
 };
 
-export const demoNextMatch: ScheduledMatch = {
-  id: "demo-next",
-  timeLabel: "16:40",
-  home: { id: "pirates", name: "Pirates" },
-  away: { id: "cobras", name: "Cobras" },
-  courtLabel: COURT_LABEL,
-  groupLabel: "Poule C",
-  href: "/matchs",
-};
-
-export const demoFollowingMatch: ScheduledMatch = {
-  id: "demo-following",
-  timeLabel: "18:20",
-  home: { id: "wolves", name: "Wolves" },
-  away: { id: "panthers", name: "Panthers" },
-  courtLabel: COURT_LABEL,
-  groupLabel: "Poule B",
-  href: "/matchs",
-};
-
-/**
- * Le format retenu compte 4 poules, mais la grille supporte aussi 3 poules :
-  * retirer simplement une entrée de ce tableau.
- */
-export const demoGroups: GroupSummary[] = [
-  { id: "a", letter: "A", teamCount: 4, href: "/groupes" },
-  { id: "b", letter: "B", teamCount: 4, href: "/groupes" },
-  { id: "c", letter: "C", teamCount: 4, href: "/groupes" },
-  { id: "d", letter: "D", teamCount: 4, href: "/groupes" },
-];
+// ---------------------------------------------------------------------------
+// Statistiques
+// ---------------------------------------------------------------------------
 
 /**
  * Seuls le meilleur buteur et le meilleur passeur figurent sur l'accueil.
  * Meilleur gardien et MVP relèveront de la future page de vote.
  */
 export const demoStatLeaders: StatLeader[] = [
-  {
-    id: "buteur",
-    title: "Meilleur buteur",
-    value: 12,
-    unit: "buts",
-    href: "/stats/buteurs",
-  },
-  {
-    id: "passeur",
-    title: "Meilleur passeur",
-    value: 8,
-    unit: "passes décisives",
-    href: "/stats/passeurs",
-  },
+  { id: "buteur", title: "Meilleur buteur", value: 12, unit: "buts", href: "/stats/buteurs" },
+  { id: "passeur", title: "Meilleur passeur", value: 8, unit: "passes décisives", href: "/stats/passeurs" },
 ];
 
+// ---------------------------------------------------------------------------
+// Tableau final
+// ---------------------------------------------------------------------------
+
 /**
- * Aperçu du tableau final, aligné sur le format réel : les 2 premiers de chaque
- * poule se qualifient, soit 8 équipes, donc une entrée en quarts.
- * La matrice reprend celle de `arena_create_knockout_bracket()`.
- * La petite finale existe mais n'apparaît pas dans cet aperçu compact.
+ * Traduit les tours du format en structure d'affichage. Aucune confrontation
+ * n'est écrite ici : tout vient de `demoFormat.knockoutRounds`, donc le tableau
+ * suit automatiquement le nombre de poules.
  */
-export const demoBracket: BracketRound[] = [
-  {
-    id: "quarts",
-    name: "Quarts",
-    pairings: [
-      {
-        id: "qf1",
-        code: "Quart 1",
-        home: { label: "1er poule A" },
-        away: { label: "2ème poule B" },
-      },
-      {
-        id: "qf2",
-        code: "Quart 2",
-        home: { label: "1er poule C" },
-        away: { label: "2ème poule D" },
-      },
-      {
-        id: "qf3",
-        code: "Quart 3",
-        home: { label: "1er poule B" },
-        away: { label: "2ème poule A" },
-      },
-      {
-        id: "qf4",
-        code: "Quart 4",
-        home: { label: "1er poule D" },
-        away: { label: "2ème poule C" },
-      },
-    ],
-  },
-  {
-    id: "demies",
-    name: "Demi-finales",
-    pairings: [
-      {
-        id: "sf1",
-        code: "Demie 1",
-        home: { label: "Vainqueur quart 1" },
-        away: { label: "Vainqueur quart 2" },
-      },
-      {
-        id: "sf2",
-        code: "Demie 2",
-        home: { label: "Vainqueur quart 3" },
-        away: { label: "Vainqueur quart 4" },
-      },
-    ],
-  },
-  {
-    id: "finale",
-    name: "La finale",
-    pairings: [
-      {
-        id: "final",
-        code: "Finale",
-        home: { label: "Vainqueur demie 1" },
-        away: { label: "Vainqueur demie 2" },
-      },
-    ],
-  },
-];
+export function buildBracketRounds(format: TournamentFormat): BracketRound[] {
+  return format.knockoutRounds.map((round) => ({
+    id: round.id,
+    name: round.name,
+    pairings: round.matches.map((match) => ({
+      id: match.code,
+      code: match.label,
+      home: { label: describeSlotSource(match.home, format) },
+      away: { label: describeSlotSource(match.away, format) },
+    })),
+  }));
+}
+
+export const demoBracket: BracketRound[] = buildBracketRounds(demoFormat);

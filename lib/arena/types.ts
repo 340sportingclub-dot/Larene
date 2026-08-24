@@ -59,6 +59,37 @@ export type GroupSummary = {
   href: string;
 };
 
+export type MatchStatus = "scheduled" | "live" | "finished";
+
+/** Rencontre du calendrier, avec son état et son score s'il existe. */
+export type FixtureMatch = ScheduledMatch & {
+  status: MatchStatus;
+  homeScore?: number | null;
+  awayScore?: number | null;
+};
+
+export type GroupStandingRow = {
+  teamId: string;
+  teamName: string;
+  rank: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+  /** Dans la zone qualificative de sa poule. */
+  qualified: boolean;
+};
+
+export type GroupStandings = {
+  groupId: string;
+  letter: string;
+  rows: GroupStandingRow[];
+};
+
 export type StatLeader = {
   id: string;
   /** Ex. « Meilleur buteur ». */
