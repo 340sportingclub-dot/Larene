@@ -41,14 +41,22 @@ export function DaySchedule({ slots }: { slots: ScheduleSlot[] }) {
                 >
                   {slot.label}
                 </p>
-                <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] tabular-nums">
-                  {slot.time ? (
-                    <span className="text-arena-gold">{slot.time}</span>
-                  ) : (
-                    <span className="text-arena-muted">À confirmer</span>
-                  )}
-                </p>
+                {/* Une heure réelle tient à droite ; une mention de
+                    disponibilité est trop longue pour y rester lisible à
+                    390 px, elle passe donc sous l'intitulé. */}
+                {slot.time && (
+                  <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-arena-gold tabular-nums">
+                    {slot.time}
+                  </p>
+                )}
               </div>
+
+              {!slot.time && (
+                <p className="mt-0.5 text-xs leading-relaxed text-arena-muted">
+                  {slot.pendingNote ?? "À confirmer"}
+                </p>
+              )}
+
               {slot.description && (
                 <p className="mt-0.5 text-xs leading-relaxed text-arena-muted">
                   {slot.description}

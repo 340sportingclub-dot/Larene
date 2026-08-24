@@ -227,6 +227,49 @@ export function CourtIcon(props: IconProps) {
   );
 }
 
+/** Chaussure de salle — semelle plate, par opposition aux crampons. */
+export function ShoeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2.5 16.5h19v2a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1z" />
+      <path d="M2.5 16.5v-4h4l2.5-3 2 1.6 3.2-1.1 3.5 3.2 3.8 1.2v2.1" />
+      <path d="M6.5 12.5v4M11 13.4v3.1M15.5 14.5v2" />
+    </Icon>
+  );
+}
+
+/** Vestiaire — casier avec sa fente d'aération. */
+export function LockerIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="5" y="3" width="14" height="18" rx="1.5" />
+      <path d="M8.5 6.5h7M8.5 9h7" />
+      <path d="M15 14.5h1.5" />
+    </Icon>
+  );
+}
+
+/** Respect / comportement — bouclier validé. */
+export function ShieldCheckIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3 19.5 5.8v5.4c0 4.3-3 8-7.5 9.3-4.5-1.3-7.5-5-7.5-9.3V5.8z" />
+      <path d="m9 12 2.2 2.2L15.5 10" />
+    </Icon>
+  );
+}
+
+/** Matériel personnel — sac de sport. */
+export function BagIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2.5" y="8.5" width="19" height="10" rx="2.5" />
+      <path d="M9 8.5v-2a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 6.5v2" />
+      <path d="M2.5 13h19" />
+    </Icon>
+  );
+}
+
 /** Carton d'avertissement / d'exclusion. La couleur vient de la classe reçue. */
 export function CardIcon(props: IconProps) {
   return (

@@ -8,6 +8,7 @@ import {
   ToBeConfirmed,
 } from "@/components/arena/InfoCard";
 import { PageHero } from "@/components/arena/PageHero";
+import { PracticalRules } from "@/components/arena/PracticalRules";
 import {
   CalendarIcon,
   CameraIcon,
@@ -21,6 +22,7 @@ import {
   TrophyIcon,
 } from "@/components/arena/icons";
 import { demoFormat } from "@/lib/arena/demo-data";
+import { getGroupMatchCount } from "@/lib/arena/tournament-format";
 import {
   arenaInfo,
   definedPracticalRules,
@@ -55,6 +57,7 @@ export default function Page() {
   const { registration, food, media } = arenaInfo;
   const fee = formatFee(registration.playerFeeCents, registration.currency);
   const postalLine = getPostalLine(arenaInfo);
+  const groupMatchCount = getGroupMatchCount(demoFormat);
 
   return (
     <main>
@@ -278,21 +281,32 @@ export default function Page() {
         {/* --- À savoir : masqué tant qu'aucune règle n'est arrêtée -------- */}
         {definedPracticalRules.length > 0 && (
           <InfoCard icon={InfoIcon} title="À savoir">
-            <dl>
-              {definedPracticalRules.map((rule) => (
-                <InfoRow key={rule.id} label={rule.label} value={rule.value} />
-              ))}
-            </dl>
+            <PracticalRules rules={definedPracticalRules} />
           </InfoCard>
         )}
 
         {/* --- Programme --------------------------------------------------- */}
         <div id="programme" className="scroll-mt-20">
         <InfoCard icon={CalendarIcon} title="Programme">
-          <p className="mb-4 text-xs leading-relaxed text-arena-muted">
-            Ordre de la journée. Les horaires précis seront publiés dès qu’ils
-            seront arrêtés.
+          <p className="mb-3 text-xs leading-relaxed text-arena-muted">
+            Ordre de la journée. Aucun horaire de match n’est publié tant que
+            les inscriptions ne sont pas closes : le calendrier dépend du nombre
+            final d’équipes engagées.
           </p>
+
+          {/* Volume dérivé du format retenu, jamais saisi à la main. */}
+          <p className="mb-4 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-arena-muted">
+            <span>{demoFormat.teamCount} équipes</span>
+            <span aria-hidden="true">·</span>
+            <span>{demoFormat.groupCount} poules</span>
+            <span aria-hidden="true">·</span>
+            <span>{groupMatchCount} matchs de poules</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {demoFormat.bracketMatches.length} matchs à élimination directe
+            </span>
+          </p>
+
           <DaySchedule slots={arenaInfo.schedule} />
         </InfoCard>
         </div>

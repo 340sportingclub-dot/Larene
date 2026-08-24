@@ -20,18 +20,37 @@ import { COURT_LABEL, demoEvent } from "@/lib/arena/demo-data";
 export type ScheduleSlot = {
   id: string;
   label: string;
-  /** Heure déjà formatée, ex. « 08:30 ». `null` = à confirmer. */
+  /** Heure déjà formatée, ex. « 08:30 ». `null` = pas encore arrêtée. */
   time: string | null;
+  /**
+   * Ce qu'on affiche à la place de l'heure tant qu'elle n'existe pas.
+   * Permet de dire « à l'issue des poules » plutôt qu'un vague « à confirmer ».
+   * Absent ⇒ « À confirmer ».
+   */
+  pendingNote?: string | null;
   /** Repris dans la carte « Date & horaires » en plus de la timeline. */
   keyMilestone?: boolean;
   description?: string | null;
 };
 
-/** Règle pratique. `value === null` ⇒ la ligne n'est pas affichée du tout. */
+/** Clé d'icône d'une règle pratique, résolue par `PracticalRules`. */
+export type PracticalRuleIcon =
+  | "shoes"
+  | "locker"
+  | "clock"
+  | "respect"
+  | "bag";
+
+/**
+ * Règle pratique, découpée en lignes courtes plutôt qu'en un pavé de texte :
+ * c'est ce qui la rend lisible d'un coup d'œil sur un téléphone.
+ * `lines === null` ⇒ règle non arrêtée, la carte n'est pas affichée.
+ */
 export type PracticalRule = {
   id: string;
   label: string;
-  value: string | null;
+  icon: PracticalRuleIcon;
+  lines: string[] | null;
 };
 
 export type AwardCategory = {
@@ -139,37 +158,108 @@ export const arenaInfo: ArenaInfo = {
   },
 
   /**
-   * Déroulé de la journée. Tous les horaires restent à confirmer : la timeline
-   * affiche l'ordre des moments, jamais une heure inventée.
+   * Déroulé de la journée.
+   *
+   * AUCUN horaire de match n'est publié ici : le calendrier dépend du nombre
+   * final d'équipes engagées. Chaque moment porte donc une mention de
+   * disponibilité plutôt qu'une heure. Renseigner `time` fera basculer la ligne
+   * sur l'heure réelle, sans toucher au composant.
    */
   schedule: [
-    { id: "doors", label: "Ouverture du gymnase", time: null, keyMilestone: true },
-    { id: "welcome", label: "Accueil des équipes", time: null, keyMilestone: true },
-    { id: "first-match", label: "Premier match", time: null, keyMilestone: true },
-    { id: "group-stage", label: "Phase de poules", time: null },
-    { id: "break", label: "Pause", time: null },
-    { id: "knockout", label: "Phases finales", time: null, keyMilestone: true },
-    { id: "penalty", label: "Concours de penalties", time: null },
     {
-      id: "vote",
-      label: "Votes MVP & meilleur gardien",
+      id: "doors",
+      label: "Ouverture & accueil des équipes",
       time: null,
-      description: "Fenêtre de vote du public, avant la finale",
+      pendingNote: "À confirmer",
+      keyMilestone: true,
     },
-    { id: "final", label: "Finale", time: null, keyMilestone: true },
+    {
+      id: "start",
+      label: "Début du tournoi",
+      time: null,
+      pendingNote: "À confirmer",
+      keyMilestone: true,
+    },
+    {
+      id: "group-stage",
+      label: "Phases de poules",
+      time: null,
+      pendingNote: "Programme communiqué après clôture des inscriptions",
+    },
+    {
+      id: "knockout",
+      label: "Phases finales",
+      time: null,
+      pendingNote: "À l’issue des poules",
+      keyMilestone: true,
+    },
+    {
+      id: "final",
+      label: "Finale",
+      time: null,
+      pendingNote: "Horaire communiqué avec le calendrier définitif",
+      keyMilestone: true,
+    },
+    {
+      id: "awards",
+      label: "Remise des récompenses",
+      time: null,
+      pendingNote: "Immédiatement après la finale",
+    },
   ],
 
   /**
-   * Règles pratiques. Aucune n'est arrêtée à ce jour : toutes valent `null`,
-   * la section entière reste donc masquée. Renseigner une valeur suffit à la
-   * faire apparaître.
+   * Règles pratiques officielles. Une règle dont `lines` vaut `null` n'est pas
+   * affichée ; si toutes le sont, la section entière disparaît.
    */
   practicalRules: [
-    { id: "shoes", label: "Chaussures", value: null },
-    { id: "changing-rooms", label: "Vestiaires", value: null },
-    { id: "arrival", label: "Heure d’arrivée", value: null },
-    { id: "conduct", label: "Comportement", value: null },
-    { id: "equipment", label: "Matériel personnel", value: null },
+    {
+      id: "shoes",
+      label: "Chaussures",
+      icon: "shoes",
+      lines: [
+        "Chaussures de salle propres obligatoires.",
+        "Crampons interdits, y compris crampons moulés et chaussures utilisées à l’extérieur.",
+      ],
+    },
+    {
+      id: "changing-rooms",
+      label: "Vestiaires",
+      icon: "locker",
+      lines: [
+        "Des vestiaires seront mis à disposition des équipes.",
+        "Les effets personnels restent sous la responsabilité de chaque participant.",
+        "Les équipes devront libérer et laisser leur vestiaire propre après utilisation.",
+      ],
+    },
+    {
+      id: "arrival",
+      label: "Heure d’arrivée",
+      icon: "clock",
+      lines: [
+        "Chaque équipe doit être présente 30 minutes avant son premier match.",
+        "Le capitaine doit se présenter à l’accueil dès l’arrivée de son équipe pour effectuer le check-in.",
+      ],
+    },
+    {
+      id: "conduct",
+      label: "Comportement",
+      icon: "respect",
+      lines: [
+        "Respect obligatoire des arbitres, adversaires, organisateurs, bénévoles, installations et spectateurs.",
+        "Tout comportement violent, menaçant ou gravement antisportif pourra entraîner l’exclusion immédiate d’un joueur ou d’une équipe du tournoi.",
+      ],
+    },
+    {
+      id: "equipment",
+      label: "Matériel",
+      icon: "bag",
+      lines: [
+        "Les équipes viennent avec leur propre tenue de match.",
+        "Les chasubles et ballons nécessaires à l’organisation des rencontres sont fournis par l’organisation.",
+        "Prévoir une gourde individuelle.",
+      ],
+    },
   ],
 
   awards: [
@@ -203,7 +293,8 @@ export const hasAnyScheduleTime = arenaInfo.schedule.some(
 
 /** Règles réellement définies. Vide ⇒ la section « À savoir » ne s'affiche pas. */
 export const definedPracticalRules = arenaInfo.practicalRules.filter(
-  (rule): rule is PracticalRule & { value: string } => rule.value !== null,
+  (rule): rule is PracticalRule & { lines: string[] } =>
+    rule.lines !== null && rule.lines.length > 0,
 );
 
 /** Catégories décernées par vote du public. */

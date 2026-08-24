@@ -204,6 +204,22 @@ export function describeSlotSource(
   return `Vainqueur ${(match?.label ?? source.matchCode).toLowerCase()}`;
 }
 
+/**
+ * Nombre de rencontres de poules qu'implique le format : mini-championnat dans
+ * chaque poule, soit n(n-1)/2 par poule.
+ *
+ * C'est le volume que le calendrier définitif devra couvrir une fois les
+ * inscriptions closes — 8 équipes en donnent 12, 10 en donnent 20, 12 en
+ * donnent 30. Calculé ici pour que la page Infos et le générateur de calendrier
+ * ne puissent pas annoncer deux chiffres différents.
+ */
+export function getGroupMatchCount(format: TournamentFormat): number {
+  return format.teamsPerGroup.reduce(
+    (total, size) => total + (size * (size - 1)) / 2,
+    0,
+  );
+}
+
 /** `true` si la poule existe dans ce format. Garde-fou contre une poule fantôme. */
 export function hasGroup(format: TournamentFormat, groupId: string): boolean {
   return format.groupIds.includes(groupId as GroupId);
