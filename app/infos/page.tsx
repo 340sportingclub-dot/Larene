@@ -27,6 +27,7 @@ import {
   formatFee,
   getDirectionsUrl,
   getInstagramUrl,
+  getPostalLine,
   getWhatsappUrl,
   hasAnyScheduleTime,
   keyMilestones,
@@ -53,6 +54,7 @@ export const metadata: Metadata = {
 export default function Page() {
   const { registration, food, media } = arenaInfo;
   const fee = formatFee(registration.playerFeeCents, registration.currency);
+  const postalLine = getPostalLine(arenaInfo);
 
   return (
     <main>
@@ -69,14 +71,19 @@ export default function Page() {
             <p className="font-display text-xl uppercase leading-tight text-arena-white sm:text-2xl">
               {arenaInfo.venueName}
             </p>
-            {arenaInfo.address && (
-              <p className="mt-1 text-sm text-arena-muted">{arenaInfo.address}</p>
-            )}
-            {arenaInfo.city && (
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-arena-muted">
-                {arenaInfo.city}
-              </p>
-            )}
+            {/* Adresse au format postal français. Chaque ligne absente est omise. */}
+            <address className="mt-2 not-italic">
+              {arenaInfo.address && (
+                <p className="text-sm leading-snug text-arena-white/85">
+                  {arenaInfo.address}
+                </p>
+              )}
+              {postalLine && (
+                <p className="text-sm leading-snug text-arena-white/85">
+                  {postalLine}
+                </p>
+              )}
+            </address>
             <div className="mt-auto pt-4">
               <InfoAction href={getDirectionsUrl(arenaInfo)} external>
                 Ouvrir l’itinéraire

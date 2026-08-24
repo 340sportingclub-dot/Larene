@@ -53,9 +53,12 @@ export type ArenaInfo = {
   /** Le tournoi se joue sur une seule journée. */
   singleDay: boolean;
   venueName: string;
-  /** Adresse postale exacte — inconnue à ce jour, donc `null`. */
+  /** Ligne de voie, ex. « 3 rue … ». Correspond à `arena_events.venue_address`. */
   address: string | null;
+  postalCode: string | null;
   city: string | null;
+  /** Sert à préciser la recherche d'itinéraire, pas affiché. */
+  country: string | null;
   /** URL d'itinéraire officielle. `null` ⇒ repli, voir `getDirectionsUrl()`. */
   mapsUrl: string | null;
   whatsappNumbers: WhatsappContact[];
@@ -95,9 +98,10 @@ export const arenaInfo: ArenaInfo = {
   singleDay: true,
 
   venueName: demoEvent.venueName,
-  // Aucune adresse postale exacte n'est connue : ne rien inventer.
-  address: null,
+  address: "3 rue Antoine de Saint-Exupéry",
+  postalCode: "89340",
   city: demoEvent.city,
+  country: "France",
   mapsUrl: null,
 
   whatsappNumbers: [
@@ -217,15 +221,32 @@ export function formatFee(cents: number, currency: string): string {
 }
 
 /**
+ * Ligne « code postal + ville », au format postal français.
+ * Retombe sur la seule ville si le code postal manque ; `null` si rien n'est connu.
+ */
+export function getPostalLine(info: ArenaInfo): string | null {
+  const line = [info.postalCode, info.city].filter(Boolean).join(" ");
+  return line || null;
+}
+
+/**
  * Lien d'itinéraire.
  *
- * Tant qu'aucune URL officielle n'est fournie, on retombe sur une **recherche**
- * Maps construite depuis le nom du lieu et la ville — les deux sont des données
- * réelles. Aucune adresse n'est inventée : c'est une requête, pas une position.
+ * Tant qu'aucune URL officielle n'est fournie, on construit une recherche Maps
+ * à partir de l'adresse réelle — voie, code postal, ville, pays — précédée du
+ * nom du gymnase pour que le résultat pointe sur l'équipement lui-même.
+ * Chaque segment absent est simplement omis.
  */
 export function getDirectionsUrl(info: ArenaInfo): string {
   if (info.mapsUrl) return info.mapsUrl;
-  const query = [info.venueName, info.city].filter(Boolean).join(", ");
+  const query = [
+    info.venueName,
+    info.address,
+    getPostalLine(info),
+    info.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
