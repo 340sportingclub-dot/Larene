@@ -169,6 +169,25 @@ export function TrophyIcon(props: IconProps) {
   );
 }
 
+/** Carton d'avertissement / d'exclusion. La couleur vient de la classe reçue. */
+export function CardIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="7" y="3.5" width="10" height="14" rx="1.5" fill="currentColor" strokeWidth={1.2} />
+    </Icon>
+  );
+}
+
+/** Sanction temporaire de 2 minutes. */
+export function TwoMinuteIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.5 9.75a2.5 2.5 0 1 1 5 0c0 2.25-5 3-5 5.5h5" />
+    </Icon>
+  );
+}
+
 const navIcons = {
   home: HomeIcon,
   calendar: CalendarIcon,

@@ -95,7 +95,8 @@ export function ArenaHeader() {
 
         <div className="ml-auto flex items-center gap-2 lg:gap-3">
           <Link
-            href="/matchs"
+            href="/live"
+            aria-label="Suivre le match en direct"
             className="inline-flex h-11 items-center gap-2 rounded-full border border-arena-gold/55 px-4 text-[11px] font-bold uppercase tracking-[0.14em] text-arena-gold transition-colors hover:border-arena-gold hover:bg-arena-gold/10 lg:px-5 lg:text-xs"
           >
             <span

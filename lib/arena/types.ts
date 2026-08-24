@@ -25,6 +25,26 @@ export type ArenaEventSummary = {
   city: string;
 };
 
+/** Miroir de `arena_match_events.event_type`, limité à ce qui s'affiche en direct. */
+export type LiveMatchEventType =
+  | "goal"
+  | "penalty_goal"
+  | "own_goal"
+  | "yellow_card"
+  | "red_card"
+  | "two_minute";
+
+export type LiveMatchEvent = {
+  id: string;
+  /** Minute déjà formatée par la source, ex. « 17' ». */
+  minuteLabel: string;
+  type: LiveMatchEventType;
+  teamId: string;
+  teamName: string;
+  /** Libellé public de l'action, ex. « But ». */
+  label: string;
+};
+
 export type LiveMatch = {
   id: string;
   home: TeamSummary;
@@ -36,6 +56,11 @@ export type LiveMatch = {
   /** Chronomètre déjà formaté par la source, ex. « 12:47 ». */
   clockLabel: string;
   venueName: string;
+  courtLabel: string;
+  /** Contexte de la rencontre, ex. « Poule A » ou « Quart 1 ». */
+  stageLabel: string;
+  /** Journal du match, du plus récent au plus ancien. */
+  events: LiveMatchEvent[];
   href: string;
 };
 

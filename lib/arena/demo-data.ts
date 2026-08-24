@@ -26,6 +26,7 @@ import type {
   GroupStandings,
   GroupSummary,
   LiveMatch,
+  LiveMatchEvent,
   StatLeader,
   TeamSummary,
 } from "@/lib/arena/types";
@@ -221,24 +222,45 @@ const openingBracketMatch = demoFormat.bracketMatches[0];
 const liveHome = demoRoster.get(demoFormat.groupIds[0])?.[0];
 const liveAway = demoRoster.get(demoFormat.groupIds[1])?.[1];
 
+const liveHomeTeam = {
+  id: liveHome?.id ?? "home",
+  name: liveHome?.name ?? "Équipe A",
+  seedLabel: seedBadge(openingBracketMatch.home),
+};
+
+const liveAwayTeam = {
+  id: liveAway?.id ?? "away",
+  name: liveAway?.name ?? "Équipe B",
+  seedLabel: seedBadge(openingBracketMatch.away),
+};
+
+/**
+ * Journal du match en cours, du plus récent au plus ancien.
+ * Correspond terme à terme à `arena_match_events` : minute, type, équipe.
+ * Le total des buts est cohérent avec le score affiché (3 - 2).
+ */
+const liveEvents: LiveMatchEvent[] = [
+  { id: "e6", minuteLabel: "24'", type: "goal", teamId: liveHomeTeam.id, teamName: liveHomeTeam.name, label: "But" },
+  { id: "e5", minuteLabel: "21'", type: "goal", teamId: liveAwayTeam.id, teamName: liveAwayTeam.name, label: "But" },
+  { id: "e4", minuteLabel: "18'", type: "yellow_card", teamId: liveAwayTeam.id, teamName: liveAwayTeam.name, label: "Carton jaune" },
+  { id: "e3", minuteLabel: "14'", type: "penalty_goal", teamId: liveHomeTeam.id, teamName: liveHomeTeam.name, label: "But sur penalty" },
+  { id: "e2", minuteLabel: "9'", type: "goal", teamId: liveAwayTeam.id, teamName: liveAwayTeam.name, label: "But" },
+  { id: "e1", minuteLabel: "4'", type: "goal", teamId: liveHomeTeam.id, teamName: liveHomeTeam.name, label: "But" },
+];
+
 export const demoLiveMatch: LiveMatch = {
   id: "demo-live",
-  home: {
-    id: liveHome?.id ?? "home",
-    name: liveHome?.name ?? "Équipe A",
-    seedLabel: seedBadge(openingBracketMatch.home),
-  },
-  away: {
-    id: liveAway?.id ?? "away",
-    name: liveAway?.name ?? "Équipe B",
-    seedLabel: seedBadge(openingBracketMatch.away),
-  },
+  home: liveHomeTeam,
+  away: liveAwayTeam,
   homeScore: 3,
   awayScore: 2,
   periodLabel: "2ème mi-temps",
   clockLabel: "12:47",
   venueName: demoEvent.venueName,
-  href: "/matchs",
+  courtLabel: COURT_LABEL,
+  stageLabel: openingBracketMatch.label,
+  events: liveEvents,
+  href: "/live",
 };
 
 // ---------------------------------------------------------------------------
