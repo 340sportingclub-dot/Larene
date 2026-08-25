@@ -259,7 +259,15 @@ stable entre deux rafraîchissements — indispensable pour l’animation.
 
 ## 8. Départage
 
-Les deux classements utilisent **exactement** la même hiérarchie :
+> ⚠️ **Cet ordre est périmé et doit être réaligné.** Le règlement sportif validé
+> retient **différence de buts → buts marqués → confrontation directe → tirs au
+> but si nécessaire**. La confrontation directe passe donc **après** les buts
+> marqués, et les tirs au but deviennent l'ultime recours. La source de vérité
+> est `lib/arena/rules.ts` (`TIEBREAK_ORDER`), pas le SQL en production.
+> Réalignement à faire dans la PR opérationnelle — voir la section 14.
+
+Les deux classements utilisent aujourd'hui **exactement** la même hiérarchie —
+c'est ce point qui reste acquis, quel que soit l'ordre retenu :
 
 1. `points` (victoire 3, nul 1, défaite 0)
 2. `goal_difference`
@@ -598,3 +606,131 @@ base, ni identifiant de prestataire de paiement. `arena_player_payments` ne
 stocke que des identifiants opaques renvoyés par le prestataire.
 
 Le dépôt est public — cette règle est absolue.
+
+---
+
+## 14. Cahier des charges de la PR opérationnelle
+
+Décisions produit validées le 25 août 2026. **Rien de ce qui suit n'est
+implémenté** : ni migration, ni type, ni fonction. Cette section est le contrat
+que la prochaine PR doit remplir.
+
+Les valeurs métier — seuils de fautes, durée du Power Play, capital de
+challenges, bornes d'effectif — vivent déjà dans `lib/arena/rules.ts`. La
+migration doit s'y référer, pas les redéfinir.
+
+### 14.1 Réaligner le départage
+
+`arena_group_standings_core()` trie aujourd'hui `goal_difference` → confrontation
+directe → `goals_for`. L'ordre validé est :
+
+1. `points`
+2. `goal_difference`
+3. `goals_for`
+4. confrontation directe (`head_to_head_*`)
+5. tirs au but si un départage reste absolument nécessaire
+6. `team_name` puis `team_id` — départage déterministe de repli
+
+Les colonnes `head_to_head_*` existent déjà : seul l'ordre du `order by` change.
+Le paramètre `p_include_live` garantit que classement officiel et classement LIVE
+ne peuvent pas diverger — cette propriété doit être conservée.
+
+Les tirs au but de départage n'ont aujourd'hui **aucune représentation** en base ;
+ils supposent un support explicite (voir 14.4, motif `shootout`).
+
+### 14.2 Faire de `classification` une vraie phase
+
+`arena_matches_phase_check` autorise `group`, `round_of_16`, `quarter_final`,
+`semi_final`, `third_place`, `final`. Il doit accepter `classification`.
+
+Les matchs 5e/6e, 7e/8e et 9e/10e du scénario 10 sont de vrais matchs : ils sont
+persistés, reçoivent leurs résultats et alimentent les statistiques comme les
+autres. Points d'attention :
+
+- `arena_matches_group_phase_check` impose `group_id is null` hors phase `group` —
+  cohérent pour `classification`, rien à changer ;
+- leurs origines sont des `group_position`, donc `arena_knockout_slots` les couvre
+  déjà sans modification ;
+- `arena_knockout_projection_core()` doit les projeter comme les autres tours ;
+- côté application, `ScheduledMatchSpec.places` porte déjà l'enjeu de place et
+  `buildFinalRanking()` sait en dériver le classement final.
+
+### 14.3 Compteur de fautes
+
+Une faute simple n'a aucun type d'événement. C'est la brique la plus structurante
+de l'écran live.
+
+- ajouter un type de faute à `arena_match_events_type_check` ;
+- le compteur est **par équipe et par match**, remis à zéro à chaque match — donc
+  dérivé d'un `count(*)` sur `(match_id, team_id)`, jamais stocké ;
+- l'état d'alerte et le seuil de penalty se lisent dans `FOUL_RULES`
+  (`alertAtFoul`, `penaltyFromFoul`) : aucune constante ne doit être recopiée en SQL.
+
+### 14.4 Motif explicite des penalties
+
+`penalty_goal` et `penalty_missed` ne disent pas d'où vient le penalty. Motifs à
+distinguer :
+
+| Motif | Sens |
+| --- | --- |
+| `ordinary` | penalty de jeu |
+| `accumulated_foul` | sanction de la 4e faute ou au-delà |
+| `shootout` | tir au but — fin de match ou départage de poule |
+
+`arena_match_events.metadata jsonb` peut le porter sans changer le schéma, à
+condition de figer la convention et de la contraindre. Une colonne dédiée avec
+`CHECK` est plus sûre si l'on veut indexer par motif.
+
+Conséquence à ne pas manquer : les tirs au but ne doivent **pas** compter dans les
+statistiques de buteurs ni dans les scores de poule.
+
+### 14.5 État explicite du Power Play
+
+Le déclenchement est représentable (`two_minute`, avec `period` / `minute` /
+`second`), la fin ne l'est pas. Il faut un état portant :
+
+- l'équipe en infériorité et le joueur exclu ;
+- le début ;
+- la fin, avec son motif : `time_expired` ou `goal_conceded` ;
+- la durée maximale vient de `POWER_PLAY_RULES.durationMinutes`.
+
+Sans fin explicite, l'écran live devrait re-déduire l'état à chaque lecture en
+rejouant la timeline — fragile et coûteux.
+
+À prévoir aussi : la suspension de 2 matchs après 2 cartons rouges dans le
+tournoi. Elle est agrégeable par `player_id` (l'index existe), mais aucun état ne
+la matérialise ni ne l'oppose à une feuille de match.
+
+### 14.6 Véritable état d'horloge
+
+`arena_matches` n'a que `started_at` et `ended_at`. La Final Minute se joue en
+temps effectif, chronomètre arrêté aux interruptions : il faut un état permettant
+pause et reprise — période en cours, temps écoulé, instant de la dernière reprise,
+indicateur d'arrêt.
+
+C'est cet état qui rend la Final Minute lisible côté public sans que le frontend
+ait à deviner le temps restant.
+
+### 14.7 Verrouillage de l'effectif
+
+L'effectif est définitivement figé au coup d'envoi du premier match de l'équipe.
+Aujourd'hui, rien ne l'empêche côté base : le verrou est seulement déductible du
+`started_at` du premier match.
+
+Il doit devenir persistant et opposable — un instant de verrouillage sur
+`arena_teams`, posé au coup d'envoi, et un contrôle qui refuse toute écriture sur
+`arena_players` au-delà. Les bornes 7–9 sont déjà portées par
+`arena_events.min_players_per_team` / `max_players_per_team` ; côté application,
+`checkSquadSize()` est la fonction de référence.
+
+### 14.8 Challenges vidéo
+
+Ni type d'événement, ni table. Capital de 3 par équipe **pour tout le tournoi**,
+donc porté par l'équipe et non par le match :
+
+- challenge gagné → conservé, challenge perdu → consommé ;
+- l'historique doit rester lisible : quel match, quelle situation, quelle issue ;
+- le capital de départ vient de `CHALLENGE_RULES.perTeam`.
+
+C'est la seule des six règles signatures qui n'a aujourd'hui **aucun point
+d'accroche** dans le schéma.
