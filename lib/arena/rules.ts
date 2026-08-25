@@ -325,14 +325,18 @@ export const SIGNATURE_RULES: SignatureRule[] = [
 export const POINTS_RULES = { win: 3, draw: 1, loss: 0 } as const;
 
 /**
- * Hiérarchie de départage des poules, dans l'ordre du règlement.
+ * Hiérarchie de départage des poules — SOURCE DE VÉRITÉ.
  *
- * ⚠️ DIVERGENCE CONNUE AVEC LA BASE : `arena_group_standings` (migration
- * foundation, déjà en production) applique aujourd'hui différence de buts →
- * **confrontation directe** → buts marqués → discipline. Le règlement ci-dessous
- * place la confrontation directe APRÈS les buts marqués et termine par les tirs
- * au but. L'alignement du moteur SQL relève d'une migration à part : cette
- * PR ne touche à aucune fonction ni vue.
+ * ⚠️ LE SQL EN PRODUCTION NE SUIT PAS ENCORE CET ORDRE.
+ * `arena_group_standings` (migration foundation) applique différence de buts →
+ * **confrontation directe** → buts marqués → discipline. L'ordre ci-dessous est
+ * celui du règlement validé : la confrontation directe vient APRÈS les buts
+ * marqués, et les tirs au but ferment la marche.
+ *
+ * Décision produit actée : c'est le SQL qui doit être réaligné sur ce fichier,
+ * jamais l'inverse. Le réalignement appartient à la PR opérationnelle
+ * (voir `supabase/README.md`, section 14.1) — celle-ci ne touche à aucune
+ * fonction ni vue.
  */
 export const TIEBREAK_ORDER = [
   "Différence de buts",
