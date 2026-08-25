@@ -50,6 +50,20 @@ export type ArenaInviteStatus =
   | "expired"
   | "cancelled";
 
+/**
+ * Présence constatée le jour du tournoi.
+ * Axe distinct de `ArenaPlayerStatus`, qui porte l'inscription : un joueur
+ * `confirmed` peut parfaitement être `absent`.
+ * Ajouté par `20260825120000_arena_registration_operations.sql`.
+ */
+export type ArenaAttendance = "unknown" | "present" | "absent";
+
+/**
+ * Moyens de paiement acceptés pour cette édition.
+ * Ajouté par `20260825120000_arena_registration_operations.sql`.
+ */
+export type ArenaPaymentProvider = "cash" | "bank_transfer" | "helloasso";
+
 export type ArenaPaymentStatus =
   | "pending"
   | "processing"
@@ -192,6 +206,8 @@ export type Database = {
           status: ArenaTeamStatus;
           reservation_expires_at: string | null;
           confirmed_at: string | null;
+          roster_locked_at: string | null;
+          checked_in_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -210,6 +226,8 @@ export type Database = {
           status?: ArenaTeamStatus;
           reservation_expires_at?: string | null;
           confirmed_at?: string | null;
+          roster_locked_at?: string | null;
+          checked_in_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -236,6 +254,8 @@ export type Database = {
           shirt_number: number | null;
           role: ArenaPlayerRole;
           status: ArenaPlayerStatus;
+          attendance: ArenaAttendance;
+          checked_in_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -250,6 +270,8 @@ export type Database = {
           shirt_number?: number | null;
           role?: ArenaPlayerRole;
           status?: ArenaPlayerStatus;
+          attendance?: ArenaAttendance;
+          checked_in_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -257,6 +279,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "arena_players_team_id_fkey";
+            columns: ["team_id"];
+            referencedRelation: "arena_teams";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /**
+       * Accès privé du capitaine à son espace équipe.
+       * Ajoutée par `20260825120000_arena_registration_operations.sql`.
+       * Table en refus total : ni `anon` ni `authenticated` n'y ont accès.
+       */
+      arena_team_access_tokens: {
+        Row: {
+          id: string;
+          team_id: string;
+          /** SHA-256 hexadécimal. Le jeton en clair n'est jamais stocké. */
+          token_hash: string;
+          label: string | null;
+          expires_at: string | null;
+          revoked_at: string | null;
+          last_used_at: string | null;
+          use_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          team_id: string;
+          token_hash: string;
+          label?: string | null;
+          expires_at?: string | null;
+          revoked_at?: string | null;
+          last_used_at?: string | null;
+          use_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["arena_team_access_tokens"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "arena_team_access_tokens_team_id_fkey";
             columns: ["team_id"];
             referencedRelation: "arena_teams";
             referencedColumns: ["id"];
@@ -315,7 +381,7 @@ export type Database = {
           amount_cents: number;
           currency: string;
           status: ArenaPaymentStatus;
-          payment_provider: string | null;
+          payment_provider: ArenaPaymentProvider | null;
           provider_payment_id: string | null;
           checkout_reference: string | null;
           paid_at: string | null;
@@ -329,7 +395,7 @@ export type Database = {
           amount_cents: number;
           currency?: string;
           status?: ArenaPaymentStatus;
-          payment_provider?: string | null;
+          payment_provider?: ArenaPaymentProvider | null;
           provider_payment_id?: string | null;
           checkout_reference?: string | null;
           paid_at?: string | null;
