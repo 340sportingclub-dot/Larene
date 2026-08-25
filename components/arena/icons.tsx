@@ -289,6 +289,17 @@ export function TwoMinuteIcon(props: IconProps) {
   );
 }
 
+/** Retrait d'une ligne — corbeille. */
+export function TrashIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 6.5h16" />
+      <path d="M9.5 6.5V4.75A1.25 1.25 0 0 1 10.75 3.5h2.5a1.25 1.25 0 0 1 1.25 1.25V6.5" />
+      <path d="M6.5 6.5 7.4 19a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-12.5" />
+    </Icon>
+  );
+}
+
 /** Chevron d'ouverture — pivote quand le bloc est déplié. */
 export function ChevronDownIcon(props: IconProps) {
   return (
