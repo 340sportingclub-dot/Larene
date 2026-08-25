@@ -38,33 +38,54 @@
 --   * un jeton est révocable (revoked_at) et expirable (expires_at) ;
 --   * l'usage est tracé pour permettre de repérer un partage anormal.
 
+-- ⚠️ CETTE SECTION EST AUTO-RÉPARANTE, ET CE N'EST PAS DE LA PRÉCAUTION
+-- GRATUITE : une table `arena_team_access_tokens` partielle a été trouvée en
+-- production le 25/08/2026, sans `label`, `use_count` ni `updated_at`. Un simple
+-- `create table if not exists` n'aurait rien fait et aurait laissé le schéma
+-- incompatible avec le code, sans le moindre message d'erreur.
+--
+-- La table est donc créée si elle manque, PUIS chaque colonne, contrainte et
+-- index est ajouté séparément. Le résultat est le même quel que soit l'état de
+-- départ : table absente, partielle ou déjà complète.
+
 create table if not exists public.arena_team_access_tokens (
-  id           uuid primary key default gen_random_uuid(),
-  team_id      uuid not null
+  id         uuid primary key default gen_random_uuid(),
+  team_id    uuid not null
     references public.arena_teams (id) on delete cascade,
 
   -- SHA-256 du jeton, en hexadécimal minuscule (64 caractères).
-  token_hash   text        not null,
+  token_hash text        not null,
 
-  -- Étiquette libre : « capitaine », « co-capitaine »… Aucune donnée personnelle.
-  label        text,
-
-  expires_at   timestamptz,
-  revoked_at   timestamptz,
-
-  last_used_at timestamptz,
-  use_count    integer     not null default 0,
-
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now(),
-
-  constraint arena_team_access_tokens_token_hash_key
-    unique (token_hash),
-  constraint arena_team_access_tokens_token_hash_shape_check
-    check (token_hash ~ '^[0-9a-f]{64}$'),
-  constraint arena_team_access_tokens_use_count_check
-    check (use_count >= 0)
+  created_at timestamptz not null default now()
 );
+
+-- Colonnes — ajoutées une à une pour rattraper une table préexistante.
+alter table public.arena_team_access_tokens
+  -- Étiquette libre : « capitaine », « co-capitaine »… Aucune donnée personnelle.
+  add column if not exists label        text,
+  add column if not exists expires_at   timestamptz,
+  add column if not exists revoked_at   timestamptz,
+  add column if not exists last_used_at timestamptz,
+  add column if not exists use_count    integer     not null default 0,
+  add column if not exists updated_at   timestamptz not null default now();
+
+-- Contraintes — idem : recréées explicitement, jamais supposées présentes.
+alter table public.arena_team_access_tokens
+  drop constraint if exists arena_team_access_tokens_token_hash_key;
+alter table public.arena_team_access_tokens
+  add constraint arena_team_access_tokens_token_hash_key unique (token_hash);
+
+alter table public.arena_team_access_tokens
+  drop constraint if exists arena_team_access_tokens_token_hash_shape_check;
+alter table public.arena_team_access_tokens
+  add constraint arena_team_access_tokens_token_hash_shape_check
+    check (token_hash ~ '^[0-9a-f]{64}$');
+
+alter table public.arena_team_access_tokens
+  drop constraint if exists arena_team_access_tokens_use_count_check;
+alter table public.arena_team_access_tokens
+  add constraint arena_team_access_tokens_use_count_check
+    check (use_count >= 0);
 
 comment on table public.arena_team_access_tokens is
   'L''ARÈNE — accès privé du capitaine à son espace équipe. Seul le hachage SHA-256 du jeton est stocké ; le jeton en clair ne vit que dans le lien transmis.';
