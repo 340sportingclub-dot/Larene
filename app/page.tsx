@@ -17,9 +17,9 @@ import {
  * Accueil public de L'ARÈNE.
  *
  * Cette page ne fait qu'assembler des sections et leur passer des données.
- * Toute la structure — nombre de poules, présence de quarts, composition du
- * tableau — vient du format central via `lib/arena/demo-data.ts`. Aucun test
- * sur le nombre d'équipes ici.
+ * Toute la structure — nombre de poules, tours du tableau, composition des
+ * confrontations — vient du scénario central via `lib/arena/demo-data.ts`.
+ * Aucun test sur le nombre d'équipes ici.
  */
 export default function Home() {
   return (

@@ -10,13 +10,13 @@ import type { BracketRound } from "@/lib/arena/types";
 /**
  * Aperçu du tableau final — « le chemin des survivants ».
  *
- * La composition est entièrement dérivée des tours reçus : deux poules donnent
- * demi-finales + finale, quatre poules donnent quarts + demies + finale. Aucun
- * test sur le nombre d'équipes n'existe ici.
+ * La composition est entièrement dérivée des tours reçus : le composant ne teste
+ * jamais le nombre d'équipes ni de poules. Les trois scénarios de l'édition
+ * (8, 10, 12) donnent demi-finales + finale.
  *
  * Mobile  : tours empilés, mais les confrontations d'un même tour se placent sur
- *           deux colonnes — le tableau à 4 poules tient ainsi en 4 rangées au
- *           lieu de 7. Aucun défilement latéral.
+ *           deux colonnes — un tour à plusieurs affiches reste ainsi lisible sans
+ *           défilement latéral.
  * Desktop : une colonne par tour, séparées par un filet doré.
  *
  * Tant qu'aucun qualifié n'est connu, chaque place affiche son origine

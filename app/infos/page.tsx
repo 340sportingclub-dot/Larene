@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { AdditionalRules } from "@/components/arena/AdditionalRules";
 import { DaySchedule } from "@/components/arena/DaySchedule";
 import {
   InfoAction,
@@ -9,6 +10,7 @@ import {
 } from "@/components/arena/InfoCard";
 import { PageHero } from "@/components/arena/PageHero";
 import { PracticalRules } from "@/components/arena/PracticalRules";
+import { SignatureRules } from "@/components/arena/SignatureRules";
 import {
   CalendarIcon,
   CameraIcon,
@@ -23,6 +25,14 @@ import {
 } from "@/components/arena/icons";
 import { demoFormat, demoKnockoutFixtures } from "@/lib/arena/demo-data";
 import { isPreviewEnvironment } from "@/lib/arena/environment";
+import {
+  ADDITIONAL_RULES,
+  AWARD_RULES,
+  MATCH_FORMAT_LABEL,
+  SIGNATURE_RULES,
+  SQUAD_LOCK_LABEL,
+  SUBSTITUTES_LABEL,
+} from "@/lib/arena/rules";
 import { getGroupMatchCount } from "@/lib/arena/tournament-format";
 import {
   arenaInfo,
@@ -168,7 +178,10 @@ export default function Page() {
             <dl>
               <InfoRow label="Catégorie" value={registration.ageCategory} />
               <InfoRow label="Tarif" value={`${fee} par joueur`} />
+              {/* Effectif réglementaire : 7 à 9 joueurs, 6 sur le terrain. */}
               <InfoRow label="Effectif" value={registration.squadSizeNote} />
+              <InfoRow label="Sur le terrain" value={MATCH_FORMAT_LABEL} />
+              <InfoRow label="Remplaçants" value={SUBSTITUTES_LABEL} />
               {registration.limitedPlaces && (
                 <InfoRow label="Places" value="Limitées" />
               )}
@@ -188,7 +201,8 @@ export default function Page() {
           </div>
 
           <p className="mt-4 text-xs leading-relaxed text-arena-muted">
-            La place d’une équipe est validée une fois l’inscription finalisée.
+            La place d’une équipe est validée une fois l’inscription finalisée.{" "}
+            {SQUAD_LOCK_LABEL} : aucun joueur ne peut être ajouté ensuite.
           </p>
         </InfoCard>
 
@@ -229,6 +243,31 @@ export default function Page() {
             </p>
           </InfoCard>
         </div>
+
+        {/* --- Les règles de L'ARÈNE --------------------------------------
+            Section volontairement plus forte que les cartes voisines : c'est
+            ce qui distingue le tournoi. Six accroches lisibles d'un coup
+            d'œil, le règlement replié dessous. */}
+        <section aria-labelledby="rules-title" className="pt-4 sm:pt-6">
+          <h2
+            id="rules-title"
+            className="font-display text-3xl uppercase leading-none tracking-[0.01em] text-arena-white sm:text-4xl lg:text-5xl"
+          >
+            Les règles de L’ARÈNE
+          </h2>
+          <p className="mt-2 text-[11px] font-bold uppercase tracking-[0.2em] text-arena-gold sm:text-xs">
+            Ici, chaque seconde compte.
+          </p>
+
+          <div className="mt-5">
+            <SignatureRules rules={SIGNATURE_RULES} />
+          </div>
+
+          <h3 className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.2em] text-arena-gold">
+            Le reste du règlement
+          </h3>
+          <AdditionalRules groups={ADDITIONAL_RULES} />
+        </section>
 
         {/* --- Buvette + média -------------------------------------------- */}
         <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
@@ -321,29 +360,39 @@ export default function Page() {
 
         {/* --- Récompenses -------------------------------------------------- */}
         <InfoCard icon={TrophyIcon} title="Récompenses">
+          {/* Chaque récompense dit comment elle est attribuée : statistiques
+              officielles, ou shortlist + vote mixte jury / public. */}
           <ul className="grid gap-2 sm:grid-cols-2">
             {arenaInfo.awards.map((award) => (
               <li
                 key={award.id}
-                className="flex min-h-[44px] items-center gap-3 rounded-lg border border-arena-line bg-arena-black/50 px-3 py-2"
+                className="rounded-lg border border-arena-line bg-arena-black/50 px-3 py-2.5"
               >
-                <TrophyIcon className="h-4 w-4 shrink-0 text-arena-gold-dark" />
-                <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.1em] text-arena-white">
-                  {award.label}
-                </span>
-                {award.publicVote && (
-                  <span className="shrink-0 rounded border border-arena-gold/35 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-arena-gold">
-                    Vote
+                <p className="flex items-center gap-3">
+                  <TrophyIcon className="h-4 w-4 shrink-0 text-arena-gold-dark" />
+                  <span className="min-w-0 flex-1 text-xs font-bold uppercase tracking-[0.1em] text-arena-white">
+                    {award.label}
                   </span>
-                )}
+                  {award.publicVote && (
+                    <span className="shrink-0 rounded border border-arena-gold/35 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-arena-gold">
+                      Vote
+                    </span>
+                  )}
+                </p>
+                <p className="mt-1.5 pl-7 text-[11px] leading-relaxed text-arena-muted">
+                  {award.method}
+                </p>
               </li>
             ))}
           </ul>
 
           {publicVoteAwards.length > 0 && (
             <p className="mt-4 text-xs leading-relaxed text-arena-muted">
-              {publicVoteAwards.map((award) => award.label).join(" et ")} :
-              vote du public avant la finale.
+              {publicVoteAwards.map((award) => award.label).join(" et ")} :{" "}
+              {AWARD_RULES.shortlistSize} finalistes désignés par l’organisation,
+              puis vote du public avant la finale. Le résultat combine{" "}
+              {AWARD_RULES.juryShare} % de jury L’ARÈNE et{" "}
+              {AWARD_RULES.publicShare} % de vote public.
             </p>
           )}
         </InfoCard>

@@ -24,6 +24,14 @@
  *   `group_rank`.
  */
 
+import {
+  AWARD_VOTE_METHOD,
+  FINAL_DURATION_LABEL,
+  GROUP_DURATION_LABEL,
+  KNOCKOUT_DURATION_LABEL,
+  PUBLIC_VOTE_CATEGORIES,
+} from "@/lib/arena/rules";
+
 /**
  * Les trois scénarios actifs ne comptent que deux poules. Le type l'impose :
  * une poule C ou D n'est plus représentable.
@@ -131,15 +139,11 @@ export type TournamentScenario = {
 // ---------------------------------------------------------------------------
 
 const FIRST_KICKOFF = "09:00";
-/** 10 min de jeu + 2 min de rotation. */
+/**
+ * Pas de la grille horaire : 10 min de jeu + 2 min de rotation.
+ * Les durées de jeu elles-mêmes appartiennent au règlement (`lib/arena/rules`).
+ */
 export const GROUP_SLOT_MINUTES = 12;
-export const GROUP_PLAY_MINUTES = 10;
-export const KNOCKOUT_PLAY_MINUTES = 10;
-export const FINAL_HALF_MINUTES = 7;
-
-export const GROUP_DURATION_LABEL = `${GROUP_PLAY_MINUTES} min`;
-export const KNOCKOUT_DURATION_LABEL = `${KNOCKOUT_PLAY_MINUTES} min`;
-export const FINAL_DURATION_LABEL = `2 × ${FINAL_HALF_MINUTES} min`;
 
 function toMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -202,15 +206,10 @@ function groupPairings(size: number, legs: 1 | 2): [number, number][] {
 
 const GROUP_IDS: GroupId[] = ["A", "B"];
 
-/** Catégories soumises au vote du public, avant la finale. */
-export const PUBLIC_VOTE_CATEGORIES = [
-  "Meilleur joueur du tournoi",
-  "Meilleur gardien",
-];
-
 /**
  * Moment officiel de la journée, entre les demi-finales et la petite finale.
  * Défini ici une seule fois : les trois scénarios n'en changent que l'horaire.
+ * Les catégories et la méthode de vote viennent du règlement.
  */
 function penaltyEvent(
   timeLabel: string,
@@ -224,7 +223,7 @@ function penaltyEvent(
     endTimeLabel,
     note: [
       `Votes : ${PUBLIC_VOTE_CATEGORIES.join(" et ")}`,
-      "Candidats désignés par l’organisation",
+      AWARD_VOTE_METHOD,
       extra,
     ]
       .filter(Boolean)

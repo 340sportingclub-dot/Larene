@@ -289,6 +289,76 @@ export function TwoMinuteIcon(props: IconProps) {
   );
 }
 
+/** Chevron d'ouverture — pivote quand le bloc est déplié. */
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 9.5l6 6 6-6" />
+    </Icon>
+  );
+}
+
+/** Effectif sur le terrain — deux camps qui se font face. */
+export function SquadIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="6.5" cy="7" r="2.5" />
+      <path d="M2.5 18.5a4 4 0 0 1 8 0" />
+      <circle cx="17.5" cy="7" r="2.5" />
+      <path d="M13.5 18.5a4 4 0 0 1 8 0" />
+      <path d="M12 4v16" strokeDasharray="2 2.5" />
+    </Icon>
+  );
+}
+
+/** Coup de sifflet — faute, arbitrage. */
+export function WhistleIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.5 8.5h11.5v4a5.75 5.75 0 1 1-11.5 0z" />
+      <circle cx="9.25" cy="12.25" r="1.75" />
+      <path d="M15 9.75h4a1.75 1.75 0 0 1 0 3.5h-4" />
+    </Icon>
+  );
+}
+
+/**
+ * Sablier — temps qui s'écoule jusqu'à la dernière seconde.
+ * Distinct du chronomètre, réservé à la Final Minute.
+ */
+export function HourglassIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6.5 3h11" />
+      <path d="M6.5 21h11" />
+      <path d="M8 3v3.2c0 1 .5 1.9 1.3 2.5L12 10.7l2.7-2c.8-.6 1.3-1.5 1.3-2.5V3" />
+      <path d="M8 21v-3.2c0-1 .5-1.9 1.3-2.5l2.7-2 2.7 2c.8.6 1.3 1.5 1.3 2.5V21" />
+    </Icon>
+  );
+}
+
+/** Review vidéo — écran et lecture. */
+export function VideoReviewIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <path d="M10 9.5l4.5 2.5L10 14.5z" />
+    </Icon>
+  );
+}
+
+/** Chronomètre — temps effectif, remise en jeu. */
+export function StopwatchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="13.5" r="7.5" />
+      <path d="M12 9.5v4l2.5 1.5" />
+      <path d="M9.5 2.5h5" />
+      <path d="M12 2.5V6" />
+    </Icon>
+  );
+}
+
 const navIcons = {
   home: HomeIcon,
   calendar: CalendarIcon,

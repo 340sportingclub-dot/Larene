@@ -16,6 +16,13 @@
 
 import { COURT_LABEL, demoEvent } from "@/lib/arena/demo-data";
 import {
+  AWARD_RULES,
+  AWARD_STATS_METHOD,
+  AWARD_VOTE_METHOD,
+  PUBLIC_VOTE_CATEGORIES,
+  SQUAD_SIZE_LABEL,
+} from "@/lib/arena/rules";
+import {
   activeScenario,
   getMatchesByPhase,
   type TournamentScenario,
@@ -61,8 +68,12 @@ export type PracticalRule = {
 export type AwardCategory = {
   id: string;
   label: string;
-  /** Décerné par vote du public avant la finale. */
+  /** Soumis au vote du public, avant la finale. */
   publicVote: boolean;
+  /** Comment le lauréat est désigné. Vient du règlement. */
+  method: string;
+  /** Finalistes présélectionnés. `null` quand la récompense vient des stats. */
+  shortlistSize: number | null;
 };
 
 export type WhatsappContact = {
@@ -230,7 +241,8 @@ export const arenaInfo: ArenaInfo = {
     ageCategory: "+16 ans",
     playerFeeCents: 1500,
     currency: "EUR",
-    squadSizeNote: "Effectif variable selon les inscriptions",
+    // Effectif réglementaire : la valeur vient du règlement, jamais recopiée.
+    squadSizeNote: SQUAD_SIZE_LABEL,
     limitedPlaces: true,
     // Parcours d'inscription en ligne pas encore ouvert : pas de faux bouton.
     url: null,
@@ -315,11 +327,40 @@ export const arenaInfo: ArenaInfo = {
     },
   ],
 
+  /**
+   * Récompenses officielles. Buteur et passeur sortent des statistiques ; les
+   * deux autres passent par une shortlist et un vote mixte jury / public,
+   * défini une seule fois dans le règlement.
+   */
   awards: [
-    { id: "buteur", label: "Meilleur buteur", publicVote: false },
-    { id: "passeur", label: "Meilleur passeur", publicVote: false },
-    { id: "mvp", label: "Meilleur joueur du tournoi", publicVote: true },
-    { id: "gardien", label: "Meilleur gardien", publicVote: true },
+    {
+      id: "buteur",
+      label: "Meilleur buteur",
+      publicVote: false,
+      method: AWARD_STATS_METHOD,
+      shortlistSize: null,
+    },
+    {
+      id: "passeur",
+      label: "Meilleur passeur",
+      publicVote: false,
+      method: AWARD_STATS_METHOD,
+      shortlistSize: null,
+    },
+    {
+      id: "mvp",
+      label: PUBLIC_VOTE_CATEGORIES[0],
+      publicVote: true,
+      method: AWARD_VOTE_METHOD,
+      shortlistSize: AWARD_RULES.shortlistSize,
+    },
+    {
+      id: "gardien",
+      label: PUBLIC_VOTE_CATEGORIES[1],
+      publicVote: true,
+      method: AWARD_VOTE_METHOD,
+      shortlistSize: AWARD_RULES.shortlistSize,
+    },
   ],
 };
 
