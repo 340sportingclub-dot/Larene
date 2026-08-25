@@ -157,6 +157,18 @@ RLS est activé sur **les 12 tables**. Le principe est **deny by default** :
   (ils ne s’appliquent qu’aux objets créés par le rôle pour lequel ils ont été
   définis). Sans ce `GRANT`, la fonction serait inappelable par qui que ce soit
   hors propriétaire.
+- **`service_role` doit recevoir ses privilèges EXPLICITEMENT, sur les tables
+  comme sur les fonctions.** La règle énoncée plus haut à propos des fonctions
+  vaut aussi pour les tables, et l'oublier a coûté une panne de production le
+  25/08/2026 : `foundation` et le hotfix ne s'adressaient qu'à `anon` et
+  `authenticated`, en s'en remettant aux `default privileges` de Supabase pour
+  `service_role`. Ceux-ci n'ont pas couvert les tables `arena_*`, et **toute
+  lecture serveur échouait** avec `42501 permission denied for table
+  arena_events` — donc aucune inscription possible. Corrigé par
+  `20260825140000_arena_service_role_grants.sql`, qui accorde le DML complet à
+  `service_role` sur les tables `arena_*`, la lecture sur les vues, l'exécution
+  sur les fonctions, et pose des `default privileges` pour les objets futurs.
+  Toute nouvelle table `arena_*` doit être couverte par ce fichier.
 - Les privilèges sont révoqués puis re-accordés explicitement, **sur les tables
   comme sur les vues** : la protection ne repose pas uniquement sur RLS.
   Cette révocation sur les vues est indispensable. Supabase pose
