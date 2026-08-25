@@ -78,23 +78,46 @@ export type ActiveEvent = {
  * On retient l'événement à venir le plus proche : c'est le seul critère qui
  * reste juste quand une édition passée existe encore en base.
  */
+/** Colonnes lues par `getActiveEvent()`. Partagées avec le diagnostic. */
+export const ACTIVE_EVENT_COLUMNS =
+  "id, name, event_date, registration_status, player_fee_cents, currency, minimum_age, min_players_per_team, max_players_per_team, max_teams";
+
 export async function getActiveEvent(): Promise<ActiveEvent | null> {
   // Pas de configuration serveur = pas d'édition connue. Les pages doivent
   // afficher un état clair, pas une erreur 500.
   const admin = getAdminClient();
-  if (!admin) return null;
+  if (!admin) {
+    // Ne jamais échouer en silence : sans cette trace, une variable
+    // d'environnement absente est indiscernable d'une base vide.
+    console.error(
+      "[arena] getActiveEvent : client service_role indisponible — NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquante côté serveur.",
+    );
+    return null;
+  }
 
   const { data, error } = await admin
     .from("arena_events")
-    .select(
-      "id, name, event_date, registration_status, player_fee_cents, currency, minimum_age, min_players_per_team, max_players_per_team, max_teams",
-    )
+    .select(ACTIVE_EVENT_COLUMNS)
     .gte("event_date", new Date().toISOString().slice(0, 10))
     .order("event_date", { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    // Le code et le message PostgREST ne contiennent aucun secret, et ils
+    // disent exactement ce qui bloque : privilège, colonne, clé invalide.
+    console.error(
+      `[arena] getActiveEvent : requête refusée — code=${error.code} message=${error.message} details=${error.details ?? "—"} hint=${error.hint ?? "—"}`,
+    );
+    return null;
+  }
+
+  if (!data) {
+    console.error(
+      "[arena] getActiveEvent : aucune édition à venir — aucune ligne arena_events dont event_date >= aujourd’hui.",
+    );
+    return null;
+  }
 
   return {
     id: data.id,
