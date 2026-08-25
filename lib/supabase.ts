@@ -16,8 +16,16 @@ import type { Database } from "@/lib/database.types";
  * par les policies RLS côté base.
  */
 
+/**
+ * Supabase a changé de génération de clés publiques : la clé « anon » (JWT
+ * `eyJ…`) est remplacée par une clé « publishable » (`sb_publishable_…`).
+ * Les deux noms sont acceptés, sans quoi un projet migré vers le format récent
+ * se retrouve avec un client `null` alors que sa clé est bien configurée.
+ */
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 export type ArenaSupabaseClient = SupabaseClient<Database>;
 
