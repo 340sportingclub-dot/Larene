@@ -97,6 +97,20 @@ export const ACTIVE_EVENT_COLUMNS =
  * terminée ni annulée — la plus récente. Une édition reportée le reste, une
  * édition close disparaît, et l'édition suivante prend la main dès qu'elle est
  * créée avec une date postérieure.
+ *
+ * LIMITE CONNUE — À RENFORCER AVANT DE GÉRER PLUSIEURS ÉDITIONS
+ * « La plus récente parmi les vivantes » est exact tant qu'il n'y a qu'une
+ * édition vivante à la fois, ce qui est le cas aujourd'hui. Le jour où deux
+ * coexistent, ce critère devient ambigu — et il choisit mal dans au moins un
+ * cas prévisible : une édition `draft` préparée pour l'an prochain porte une
+ * date postérieure à l'édition ouverte aux inscriptions, et lui prendrait la
+ * main.
+ *
+ * Ce qu'il faudra alors : une notion explicite d'édition COURANTE, portée par
+ * la donnée et non déduite d'un tri — un drapeau unique, ou une sélection par
+ * `event_status` ordonné du plus engagé au moins engagé. C'est un choix de
+ * modèle, pas un ajustement de requête, et il se fait avec le cas d'usage réel
+ * sous les yeux.
  */
 export async function getActiveEvent(): Promise<ActiveEvent | null> {
   // Pas de configuration serveur = pas d'édition connue. Les pages doivent

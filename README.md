@@ -28,9 +28,9 @@ Application web **mobile-first** de gestion et d’animation d’un tournoi de f
 ```
 app/          routes et layouts (App Router)
 components/   composants React partagés
-lib/          client Supabase, types, utilitaires
+lib/          client Supabase, règles métier, sessions, types
 public/       assets statiques
-supabase/     migrations SQL (à venir)
+supabase/     migrations SQL appliquées et documentation du modèle
 ```
 
 ## Installation
@@ -120,6 +120,15 @@ Supabase héberge aussi `hub_*` et `academy_*`, qui appartiennent au dépôt
 [`340-hub`](https://github.com/340sportingclub-dot/340-hub) et n’ont pas à
 apparaître ici.
 
+## Dette connue
+
+| Sujet | Détail |
+| --- | --- |
+| Édition courante | `getActiveEvent()` retient l'édition vivante à la date la plus récente. Exact avec une seule édition ; **à renforcer avant d'en gérer plusieurs**. Une édition `draft` préparée pour l'année suivante prendrait la main sur l'édition ouverte aux inscriptions. Voir le commentaire de la fonction. |
+| Plafond d'équipes | `max_teams` est vérifié par comptage puis insertion : deux inscriptions simultanées sur la dernière place peuvent toutes deux passer. Une garantie stricte demande une contrainte en base. |
+| Pages publiques | Accueil, groupes, matchs, direct et tableau final tournent sur `lib/arena/demo-data.ts` et affichent une date en dur. Elles ne reflètent pas encore l'état réel de l'édition. |
+| Arena Control | Rôles, permissions et session existent en bibliothèque ; aucune route `/control/*` n'est écrite. |
+
 ## Tournoi reporté
 
 L’édition en cours est reportée à une date non encore fixée. Cet état
@@ -156,8 +165,11 @@ Les valeurs réelles vivent dans `.env.local` en local et dans les
 ## Déploiement Vercel
 
 1. Importer le dépôt dans Vercel (framework détecté : Next.js).
-2. Renseigner `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   dans **Settings → Environment Variables** (Production, Preview, Development).
+2. Renseigner les variables du tableau ci-dessus dans
+   **Settings → Environment Variables** (Production, Preview, Development).
+   `SUPABASE_SERVICE_ROLE_KEY` est indispensable : sans elle, l’inscription et
+   l’espace capitaine restent inertes — l’application se construit et s’affiche,
+   mais n’atteint jamais la base.
 3. Build : `npm run build` — Output : géré automatiquement par Vercel.
 
 Aucune configuration supplémentaire n’est requise.
