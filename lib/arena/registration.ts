@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  checkRegistrationGate,
+  LIVE_EVENT_STATUSES,
+  OCCUPYING_TEAM_STATUSES,
+  type RegistrationGate,
+} from "@/lib/arena/event-state";
 import { checkSquadSize, SQUAD_RULES, SQUAD_SIZE_LABEL } from "@/lib/arena/rules";
 import { getAdminClient, requireAdminClient } from "@/lib/supabase-admin";
 import type { ArenaPaymentProvider } from "@/lib/database.types";
@@ -64,6 +70,7 @@ export type ActiveEvent = {
   name: string;
   eventDate: string;
   registrationStatus: string;
+  eventStatus: string;
   playerFeeCents: number;
   currency: string;
   minimumAge: number;
@@ -72,16 +79,25 @@ export type ActiveEvent = {
   maxTeams: number | null;
 };
 
-/**
- * L'édition à laquelle on inscrit.
- *
- * On retient l'événement à venir le plus proche : c'est le seul critère qui
- * reste juste quand une édition passée existe encore en base.
- */
-/** Colonnes lues par `getActiveEvent()`. Partagées avec le diagnostic. */
+/** Colonnes lues par `getActiveEvent()`. */
 export const ACTIVE_EVENT_COLUMNS =
-  "id, name, event_date, registration_status, player_fee_cents, currency, minimum_age, min_players_per_team, max_players_per_team, max_teams";
+  "id, name, event_date, registration_status, event_status, player_fee_cents, currency, minimum_age, min_players_per_team, max_players_per_team, max_teams";
 
+/**
+ * L'édition en cours.
+ *
+ * ON NE CHERCHE PLUS PAR LA DATE, ET C'EST DÉLIBÉRÉ. Le critère précédent —
+ * « la première édition dont `event_date` est à venir » — fait disparaître
+ * l'édition du site le lendemain de sa date. Pour un tournoi REPORTÉ, dont la
+ * date annoncée est passée sans qu'il ait eu lieu, cela vidait d'un coup la
+ * page d'inscription, l'espace capitaine et le tarif affiché : le parcours
+ * entier retombait sur « Bientôt en ligne » sans qu'aucune donnée ait changé.
+ *
+ * Le critère juste est le STATUT : on retient l'édition encore vivante — ni
+ * terminée ni annulée — la plus récente. Une édition reportée le reste, une
+ * édition close disparaît, et l'édition suivante prend la main dès qu'elle est
+ * créée avec une date postérieure.
+ */
 export async function getActiveEvent(): Promise<ActiveEvent | null> {
   // Pas de configuration serveur = pas d'édition connue. Les pages doivent
   // afficher un état clair, pas une erreur 500.
@@ -98,8 +114,8 @@ export async function getActiveEvent(): Promise<ActiveEvent | null> {
   const { data, error } = await admin
     .from("arena_events")
     .select(ACTIVE_EVENT_COLUMNS)
-    .gte("event_date", new Date().toISOString().slice(0, 10))
-    .order("event_date", { ascending: true })
+    .in("event_status", [...LIVE_EVENT_STATUSES])
+    .order("event_date", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -114,7 +130,7 @@ export async function getActiveEvent(): Promise<ActiveEvent | null> {
 
   if (!data) {
     console.error(
-      "[arena] getActiveEvent : aucune édition à venir — aucune ligne arena_events dont event_date >= aujourd’hui.",
+      "[arena] getActiveEvent : aucune édition vivante — aucune ligne arena_events dont event_status soit draft, registration, draw ou live.",
     );
     return null;
   }
@@ -124,6 +140,7 @@ export async function getActiveEvent(): Promise<ActiveEvent | null> {
     name: data.name,
     eventDate: data.event_date,
     registrationStatus: data.registration_status,
+    eventStatus: data.event_status,
     playerFeeCents: data.player_fee_cents,
     currency: data.currency,
     minimumAge: data.minimum_age,
@@ -131,6 +148,57 @@ export async function getActiveEvent(): Promise<ActiveEvent | null> {
     maxPlayers: data.max_players_per_team,
     maxTeams: data.max_teams,
   };
+}
+
+/**
+ * Nombre d'équipes occupant une place dans l'édition.
+ *
+ * Retourne `null` si le comptage échoue : l'appelant doit alors s'abstenir de
+ * conclure. Un comptage raté n'est pas « zéro équipe », et ne doit pas non plus
+ * se transformer en « tournoi complet ».
+ */
+export async function countOccupyingTeams(
+  eventId: string,
+): Promise<number | null> {
+  const admin = getAdminClient();
+  if (!admin) return null;
+
+  const { count, error } = await admin
+    .from("arena_teams")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", eventId)
+    .in("status", [...OCCUPYING_TEAM_STATUSES]);
+
+  if (error) {
+    console.error(
+      `[arena] countOccupyingTeams : comptage refusé — code=${error.code} message=${error.message}`,
+    );
+    return null;
+  }
+
+  return count ?? null;
+}
+
+/**
+ * L'état d'ouverture des inscriptions, tel qu'il fait foi.
+ *
+ * Une page peut l'appeler pour décider quoi afficher, mais c'est bien le
+ * serveur qui doit l'appeler AVANT d'écrire : `createTeam()` le refait de son
+ * côté, sans faire confiance à ce qui a été affiché.
+ */
+export async function getRegistrationGate(
+  event: ActiveEvent,
+): Promise<RegistrationGate> {
+  const teamCount =
+    event.maxTeams === null ? null : await countOccupyingTeams(event.id);
+
+  return checkRegistrationGate({
+    eventDate: event.eventDate,
+    eventStatus: event.eventStatus,
+    registrationStatus: event.registrationStatus,
+    maxTeams: event.maxTeams,
+    teamCount,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +259,18 @@ export async function createTeam(
       errors: {},
       message: "Aucune édition n’est ouverte à l’inscription pour le moment.",
     };
+  }
+
+  // GARDE MÉTIER — elle est ici, pas dans la page.
+  //
+  // `/inscription` n'affiche le formulaire que si les inscriptions sont
+  // ouvertes, mais cette action reste appelable directement : une Server Action
+  // est un point d'entrée HTTP à part entière. Sans cette revérification,
+  // passer `registration_status` à 'paused' ou 'closed' fermerait l'écran sans
+  // fermer l'écriture, et `max_teams` ne serait jamais opposé à personne.
+  const gate = await getRegistrationGate(event);
+  if (!gate.open) {
+    return { ok: false, errors: {}, message: gate.message };
   }
 
   const admin = requireAdminClient();

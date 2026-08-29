@@ -7,15 +7,21 @@ import {
   getPostalLine,
   getWhatsappUrl,
 } from "@/lib/arena/info-data";
-import { getActiveEvent } from "@/lib/arena/registration";
+import { isDatePending } from "@/lib/arena/event-state";
+import { getActiveEvent, getRegistrationGate } from "@/lib/arena/registration";
 import { SQUAD_SIZE_LABEL } from "@/lib/arena/rules";
 import { isAdminConfigured } from "@/lib/supabase-admin";
 
+// La date n'est pas écrite ici : elle change, et une métadonnée périmée se
+// retrouve dans les aperçus de partage longtemps après la correction.
 export const metadata: Metadata = {
   title: "Inscrire mon équipe — L’ARÈNE",
   description:
-    "Votre convocation pour L’ARÈNE, dimanche 30 août 2026 au gymnase de Villeneuve-la-Guyard.",
+    "Votre convocation pour L’ARÈNE, au gymnase de Villeneuve-la-Guyard.",
 };
+
+/** Ce qu'on affiche à la place d'une date qui n'est pas encore fixée. */
+const DATE_PENDING_LABEL = "Nouvelle date prochainement";
 
 /** Le parcours dépend de l'état réel des inscriptions : rien n'est mis en cache. */
 export const dynamic = "force-dynamic";
@@ -28,40 +34,35 @@ export const dynamic = "force-dynamic";
  */
 export default async function Page() {
   const event = isAdminConfigured ? await getActiveEvent() : null;
-  const registrationOpen = event?.registrationStatus === "open";
+
+  // L'ouverture est décidée par la même garde que celle qui protège l'écriture,
+  // et non par une relecture indépendante de `registration_status` : deux
+  // lectures divergentes finiraient par se contredire.
+  const gate = event ? await getRegistrationGate(event) : null;
+  const datePending = event ? isDatePending(event) : false;
 
   // Tant que le service n'est pas relié à sa base, on ne promet pas un parcours
   // qui échouerait au premier clic : on renvoie vers un contact humain.
   if (!event) {
-    const contact = arenaInfo.whatsappNumbers[0];
-
     return (
-      <main className="px-4 py-14 sm:px-6">
-        <div className="mx-auto max-w-md text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-arena-gold">
-            Inscriptions
-          </p>
-          <h1 className="mt-2 font-display text-3xl uppercase leading-none text-arena-white sm:text-4xl">
-            Bientôt en ligne
-          </h1>
-          <p className="mt-4 text-sm leading-relaxed text-arena-muted">
-            Le formulaire d’inscription ouvre très prochainement. En attendant,
-            écrivez-nous sur WhatsApp : nous réservons votre place immédiatement.
-          </p>
+      <Notice
+        title="Bientôt en ligne"
+        body="Le formulaire d’inscription ouvre très prochainement. En attendant, écrivez-nous sur WhatsApp : nous réservons votre place immédiatement."
+      />
+    );
+  }
 
-          {contact && (
-            <a
-              href={getWhatsappUrl(contact)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-8 flex min-h-[56px] items-center justify-center rounded-md border border-arena-gold bg-arena-gold px-5 font-display text-lg uppercase tracking-[0.04em] text-arena-black transition-colors hover:bg-arena-gold-light"
-            >
-              Nous écrire sur WhatsApp
-              <span className="sr-only"> (nouvelle fenêtre)</span>
-            </a>
-          )}
-        </div>
-      </main>
+  // Inscriptions fermées, en pause ou complètes : on le dit tout de suite, au
+  // lieu de laisser le capitaine remplir un formulaire qui sera refusé au bout.
+  // Le message vient de la garde elle-même : un seul texte pour l'écran et pour
+  // le refus serveur.
+  if (gate && !gate.open) {
+    return (
+      <Notice
+        title={datePending ? "L’ARÈNE est reportée" : "Inscriptions fermées"}
+        lead={datePending ? DATE_PENDING_LABEL : undefined}
+        body={gate.message}
+      />
     );
   }
 
@@ -70,7 +71,7 @@ export default async function Page() {
       <div className="mx-auto max-w-md">
         <InvitationCard
           eventName="L’ARÈNE"
-          dateLabel={arenaInfo.dateLabel}
+          dateLabel={datePending ? DATE_PENDING_LABEL : arenaInfo.dateLabel}
           venueName={arenaInfo.venueName}
           city={getPostalLine(arenaInfo) ?? arenaInfo.city ?? ""}
           squadLabel={SQUAD_SIZE_LABEL}
@@ -80,11 +81,7 @@ export default async function Page() {
           )} par joueur`}
           ctaHref="/inscription/equipe"
           ctaLabel="Inscrire mon équipe"
-          note={
-            registrationOpen
-              ? "Places limitées. Deux minutes suffisent."
-              : "Deux minutes suffisent."
-          }
+          note="Places limitées. Deux minutes suffisent."
         />
 
         <div className="mx-auto mt-8 max-w-md space-y-3">
@@ -109,6 +106,56 @@ export default async function Page() {
           Une question ? Écrivez-nous sur WhatsApp au{" "}
           {arenaInfo.whatsappNumbers[0]?.display}.
         </p>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * Écran d'arrêt du parcours : le formulaire n'est pas proposé, et une sortie
+ * humaine l'est. Utilisé aussi bien quand aucune édition n'est trouvée que
+ * quand les inscriptions sont fermées, en pause ou complètes.
+ */
+function Notice({
+  title,
+  lead,
+  body,
+}: {
+  title: string;
+  lead?: string;
+  body: string;
+}) {
+  const contact = arenaInfo.whatsappNumbers[0];
+
+  return (
+    <main className="px-4 py-14 sm:px-6">
+      <div className="mx-auto max-w-md text-center">
+        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-arena-gold">
+          Inscriptions
+        </p>
+        <h1 className="mt-2 font-display text-3xl uppercase leading-none text-arena-white sm:text-4xl">
+          {title}
+        </h1>
+
+        {lead && (
+          <p className="mt-3 font-display text-lg uppercase tracking-[0.04em] text-arena-gold">
+            {lead}
+          </p>
+        )}
+
+        <p className="mt-4 text-sm leading-relaxed text-arena-muted">{body}</p>
+
+        {contact && (
+          <a
+            href={getWhatsappUrl(contact)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-8 flex min-h-[56px] items-center justify-center rounded-md border border-arena-gold bg-arena-gold px-5 font-display text-lg uppercase tracking-[0.04em] text-arena-black transition-colors hover:bg-arena-gold-light"
+          >
+            Nous écrire sur WhatsApp
+            <span className="sr-only"> (nouvelle fenêtre)</span>
+          </a>
+        )}
       </div>
     </main>
   );
