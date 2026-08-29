@@ -2,8 +2,16 @@
 
 Application web **mobile-first** de gestion et d’animation d’un tournoi de football en salle.
 
-> État actuel : **initialisation technique uniquement**.
-> Aucune fonctionnalité métier n’est encore développée.
+> **État actuel.** L’inscription des équipes et l’espace capitaine sont
+> fonctionnels et adossés à Supabase. Les pages publiques — accueil, groupes,
+> matchs, direct, tableau final — tournent encore sur les données de
+> démonstration de [`lib/arena/demo-data.ts`](./lib/arena/demo-data.ts).
+> Arena Control (l’espace staff) existe en bibliothèque
+> (`lib/arena/staff.ts`, `lib/arena/staff-session.ts`) mais n’a pas encore
+> d’écran : aucune route `/control/*`.
+>
+> L’édition 2026 est **reportée**, à une date non encore fixée. Le tournoi
+> reste actif ; voir [« Tournoi reporté »](#tournoi-reporté) plus bas.
 
 ## Stack
 
@@ -38,24 +46,48 @@ L’application démarre sur http://localhost:3000.
 Autres commandes :
 
 ```bash
-npm run lint    # ESLint
-npm run build   # build de production
-npm run start   # serveur de production
+npm run lint       # ESLint
+npm run typecheck  # types Next 16 générés, puis tsc --noEmit
+npm run build      # build de production
+npm run start      # serveur de production
 ```
+
+> `npm run typecheck` lance `next typegen` avant `tsc`. Next 16 génère les
+> types de routes (`PageProps`, `LayoutProps`) dans `.next/types` : `tsc` seul
+> échoue sur un dépôt fraîchement cloné, alors que le code est correct.
+
+Ces trois commandes sont rejouées à chaque *pull request* par
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
 
 ## Variables d’environnement
 
-| Variable | Description |
-| --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase `340-hub` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé publique (anon) du projet Supabase |
+| Variable | Portée | Description |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | publique | URL du projet Supabase `340-hub` |
+| `SUPABASE_SERVICE_ROLE_KEY` | **serveur** | Seul chemin d’accès aux données. Jamais de préfixe `NEXT_PUBLIC_`. |
+| `ARENA_STAFF_SESSION_SECRET` | **serveur** | Signe le cookie staff d’Arena Control |
+| `ARENA_STAFF_CODE_*` | **serveur** | Un code par fonction opérationnelle |
 
-Le modèle se trouve dans [`.env.example`](./.env.example).
+Le modèle complet, commenté, se trouve dans [`.env.example`](./.env.example).
 Le fichier `.env.local` est ignoré par Git et ne doit jamais être committé.
 
-Le client Supabase (`lib/supabase.ts`) tolère l’absence de ces variables :
-`getSupabaseClient()` renvoie `null` tant que la configuration est incomplète,
-ce qui permet de builder l’application sans credentials.
+Les deux clients tolèrent l’absence de configuration — ils renvoient `null`
+plutôt que d’échouer — ce qui permet de builder l’application sans credentials,
+en CI comme en preview.
+
+### Aucun accès Supabase depuis le navigateur
+
+Toutes les lectures et écritures passent par
+[`lib/supabase-admin.ts`](./lib/supabase-admin.ts), côté serveur, en
+`service_role`, après contrôle de session. Le navigateur n’a aucun droit
+direct sur la base, pas même en lecture.
+
+Un client `anon` a existé (`lib/supabase.ts`) : il n’était importé nulle part
+et laissait croire à une lecture navigateur qui n’existe pas. Il a été retiré.
+Il redeviendra nécessaire le jour où les pages publiques s’abonneront à
+Supabase Realtime — la stratégie est décrite au § 10 de
+[`supabase/README.md`](./supabase/README.md) — et sera réintroduit à ce
+moment-là, avec l’usage qui le justifie.
 
 ## Isolation des données (`arena_*`)
 
@@ -78,13 +110,35 @@ Le modèle de données vit dans [`supabase/`](./supabase/) :
   directe (projection live et tableau officiel), stratégie Realtime, et
   procédures d’application de migration / régénération des types.
 
-> **État** : la migration `20260813120000_arena_database_foundation.sql` est
-> présente dans le dépôt mais **n’a pas encore été appliquée** à l’instance
-> 340-hub. Elle doit être relue puis appliquée manuellement.
+> **État** : les trois migrations du dépôt sont **appliquées** sur l’instance
+> 340-hub. L’état constaté en base — tables, vues, privilèges, refus — leur
+> correspond exactement. Aucune ne doit être rejouée.
 
 Les types TypeScript de `lib/database.types.ts` sont **écrits à la main** et
-décrivent cette migration ; ils devront être régénérés depuis Supabase une fois
-la migration appliquée.
+décrivent ces trois migrations. Ils ne couvrent que `arena_*` : le projet
+Supabase héberge aussi `hub_*` et `academy_*`, qui appartiennent au dépôt
+[`340-hub`](https://github.com/340sportingclub-dot/340-hub) et n’ont pas à
+apparaître ici.
+
+## Tournoi reporté
+
+L’édition en cours est reportée à une date non encore fixée. Cet état
+s’exprime **sans aucune migration**, avec les colonnes existantes :
+
+| Ce qu’on veut dire | Comment on l’écrit |
+| --- | --- |
+| Le tournoi reste actif | `event_status` reste `registration` — surtout pas `cancelled` |
+| Les inscriptions sont suspendues | `registration_status = 'paused'` |
+| La date est à confirmer | déduit : date annoncée passée, **ou** inscriptions en pause |
+| La nouvelle date est connue | saisir `event_date`, repasser `registration_status` à `'open'` |
+
+La dérivation vit dans [`lib/arena/event-state.ts`](./lib/arena/event-state.ts),
+seule source de vérité. Elle sert à la fois à l’affichage et au refus
+d’écriture : la page d’inscription et la Server Action posent la même question
+à la même fonction.
+
+**Aucune fausse date n’est saisie.** Tant que la date est à confirmer,
+l’application affiche « Nouvelle date prochainement » au lieu de `event_date`.
 
 ## Sécurité — règle absolue
 

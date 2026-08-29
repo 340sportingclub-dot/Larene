@@ -1,0 +1,53 @@
+# Vérification minimale de chaque proposition de modification.
+#
+# Elle ne remplace pas une suite de tests — il n'y en a pas encore — mais elle
+# ferme le cas qui coûtait le plus cher : découvrir en production qu'une branche
+# ne compile pas.
+#
+# Aucun secret n'est nécessaire. Le client Supabase et le client service_role
+# tolèrent tous deux l'absence de configuration : `next build` produit un build
+# complet sans credentials, et c'est exactement ce qu'on veut vérifier ici.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Une branche poussée deux fois de suite n'occupe pas deux exécutions.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, types et build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` et non `npm install` : la CI doit vérifier l'arbre de
+      # dépendances qui est committé, pas en résoudre un nouveau.
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # `next typegen` d'abord : les types de routes de Next 16 (LayoutProps,
+      # PageProps) sont générés, et `tsc` seul ne les trouverait pas.
+      - name: Vérification des types
+        run: npm run typecheck
+
+      - name: Build de production
+        run: npm run build
